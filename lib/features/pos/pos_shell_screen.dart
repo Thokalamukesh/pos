@@ -3268,15 +3268,28 @@ class _CartPanel extends StatelessWidget {
                               child: FilledButton.icon(
                                 style: FilledButton.styleFrom(
                                   backgroundColor: const Color(0xFFF59E0B),
-                                  foregroundColor: Colors.white,
+                                  foregroundColor: Colors.black,
                                   disabledBackgroundColor: const Color(
-                                    0xFFD1D5DB,
+                                    0xFFF8FAFC,
                                   ),
                                   disabledForegroundColor: const Color(
-                                    0xFF9CA3AF,
+                                    0xFF94A3B8,
                                   ),
+                                  side: BorderSide(
+                                    color: hasLines
+                                        ? const Color(0xFFF59E0B)
+                                        : const Color(0xFFE2E8F0),
+                                  ),
+                                  elevation: hasLines ? 3 : 0,
+                                  shadowColor: const Color(
+                                    0xFFF59E0B,
+                                  ).withValues(alpha: 0.24),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
                                   ),
                                 ),
                                 onPressed: hasLines && !isCharging
@@ -3296,13 +3309,26 @@ class _CartPanel extends StatelessWidget {
                                   backgroundColor: const Color(0xFF4F46E5),
                                   foregroundColor: Colors.white,
                                   disabledBackgroundColor: const Color(
-                                    0xFFD1D5DB,
+                                    0xFFF8FAFC,
                                   ),
                                   disabledForegroundColor: const Color(
-                                    0xFF9CA3AF,
+                                    0xFF94A3B8,
                                   ),
+                                  side: BorderSide(
+                                    color: hasLines
+                                        ? const Color(0xFF4F46E5)
+                                        : const Color(0xFFE2E8F0),
+                                  ),
+                                  elevation: hasLines ? 3 : 0,
+                                  shadowColor: const Color(
+                                    0xFF4F46E5,
+                                  ).withValues(alpha: 0.24),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
                                   ),
                                 ),
                                 onPressed: hasLines && !isCharging
@@ -4960,192 +4986,321 @@ class _PrinterSetupDialogState extends ConsumerState<_PrinterSetupDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(22, 18, 12, 12),
-              child: Row(
-                children: [
-                  Text(
-                    'Receipt printer',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
+    final baseTheme = Theme.of(context);
+    final lightScheme = ColorScheme.fromSeed(
+      seedColor: AppColors.orange,
+      brightness: Brightness.light,
+      primary: AppColors.orange,
+      secondary: AppColors.mint,
+      surface: Colors.white,
+    );
+    final printerDialogTheme =
+        ThemeData(
+          useMaterial3: true,
+          colorScheme: lightScheme,
+          fontFamily: baseTheme.textTheme.bodyMedium?.fontFamily,
+        ).copyWith(
+          textTheme: baseTheme.textTheme.apply(
+            bodyColor: const Color(0xFF111827),
+            displayColor: const Color(0xFF111827),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            labelStyle: const TextStyle(
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w700,
+            ),
+            floatingLabelStyle: const TextStyle(
+              color: Color(0xFFF59E0B),
+              fontWeight: FontWeight.w800,
+            ),
+            hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+            prefixIconColor: const Color(0xFF64748B),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(
+                color: Color(0xFFF59E0B),
+                width: 1.6,
               ),
             ),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.all(22),
-                children: [
-                  TextField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Printer name',
-                      prefixIcon: Icon(Icons.print),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SegmentedButton<String>(
-                    selected: {_connectionType},
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(
-                        value: 'lan',
-                        label: Text('LAN'),
-                        icon: Icon(Icons.lan),
-                      ),
-                      ButtonSegment(
-                        value: 'usb',
-                        label: Text('USB'),
-                        icon: Icon(Icons.usb),
-                      ),
-                      ButtonSegment(
-                        value: 'bluetooth',
-                        label: Text('Bluetooth'),
-                        icon: Icon(Icons.bluetooth),
-                      ),
-                      ButtonSegment(
-                        value: 'smartpos',
-                        label: Text('Built-in'),
-                        icon: Icon(Icons.receipt_long),
-                      ),
-                    ],
-                    onSelectionChanged: (value) {
-                      setState(() {
-                        _connectionType = value.first;
-                        _devices = const [];
-                        _selectedDevice = null;
-                        if (_connectionType == 'smartpos') {
-                          _devices = const [
-                            PrinterDeviceInfo(
-                              name: 'SmartPOS built-in printer',
-                              connectionType: 'smartpos',
-                              isConnected: true,
-                            ),
-                          ];
-                          _selectedDevice = _devices.first;
-                          _nameController.text = _devices.first.name;
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  if (_connectionType == 'lan') ...[
-                    TextField(
-                      controller: _hostController,
-                      decoration: const InputDecoration(
-                        labelText: 'Printer IP address',
-                        hintText: '192.168.1.50',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _portController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Port'),
-                    ),
-                  ] else if (_connectionType == 'smartpos') ...[
-                    const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        Icons.check_circle,
-                        color: Color(0xFF10B981),
-                      ),
-                      title: Text('SmartPOS built-in printer'),
-                      subtitle: Text(
-                        'Prints through the Android SmartPOS SDK.',
-                      ),
-                    ),
-                  ] else ...[
-                    FilledButton.icon(
-                      onPressed: _scanning ? null : _scan,
-                      icon: _scanning
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                      label: const Text('Scan printers'),
-                    ),
-                    const SizedBox(height: 10),
-                    for (final device in _devices) ...[
-                      ListTile(
-                        selected: _samePrinterDevice(device, _selectedDevice),
-                        leading: Icon(
-                          _samePrinterDevice(device, _selectedDevice)
-                              ? Icons.check_circle
-                              : Icons.radio_button_unchecked,
-                        ),
-                        title: Text(device.name),
-                        subtitle: Text(
-                          device.address ??
-                              device.vendorId ??
-                              device.productId ??
-                              _connectionType.toUpperCase(),
-                        ),
-                        onTap: () {
-                          setState(() {
-                            _selectedDevice = device;
-                            _nameController.text = device.name;
-                          });
-                        },
-                      ),
-                    ],
-                    if (_selectedDevice == null && _devices.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 20),
-                        child: Text('Scan and select a USB/Bluetooth printer.'),
-                      ),
-                  ],
-                  const SizedBox(height: 14),
-                  SwitchListTile(
-                    value: _enabled,
-                    onChanged: (value) => setState(() => _enabled = value),
-                    title: const Text('Active'),
-                  ),
-                  SwitchListTile(
-                    value: _printReceipts,
-                    onChanged: (value) =>
-                        setState(() => _printReceipts = value),
-                    title: const Text('POS customer receipts'),
-                  ),
-                ],
+          ),
+          segmentedButtonTheme: SegmentedButtonThemeData(
+            style: ButtonStyle(
+              foregroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.white;
+                }
+                return const Color(0xFF475569);
+              }),
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const Color(0xFF6B4A2B);
+                }
+                return Colors.white;
+              }),
+              side: WidgetStateProperty.all(
+                const BorderSide(color: Color(0xFFCBD5E1)),
+              ),
+              textStyle: WidgetStateProperty.all(
+                const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
+          ),
+          switchTheme: SwitchThemeData(
+            thumbColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return Colors.white;
+              }
+              return const Color(0xFF64748B);
+            }),
+            trackColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return const Color(0xFFF59E0B);
+              }
+              return const Color(0xFFE2E8F0);
+            }),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+              foregroundColor: Colors.black,
+              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF111827),
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          listTileTheme: const ListTileThemeData(
+            textColor: Color(0xFF111827),
+            iconColor: Color(0xFF475569),
+          ),
+        );
+
+    return Theme(
+      data: printerDialogTheme,
+      child: Dialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 18, 12, 12),
+                child: Row(
+                  children: [
+                    Text(
+                      'Receipt printer',
+                      style: printerDialogTheme.textTheme.titleLarge?.copyWith(
+                        color: const Color(0xFF111827),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
                       onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text('Cancel'),
+                      color: const Color(0xFF94A3B8),
+                      icon: const Icon(Icons.close),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _save,
-                      icon: const Icon(Icons.save),
-                      label: const Text('Save'),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+              const Divider(height: 1),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(22),
+                  children: [
+                    TextField(
+                      controller: _nameController,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w700,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Printer name',
+                        prefixIcon: Icon(Icons.print),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    SegmentedButton<String>(
+                      selected: {_connectionType},
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(
+                          value: 'lan',
+                          label: Text('LAN'),
+                          icon: Icon(Icons.lan),
+                        ),
+                        ButtonSegment(
+                          value: 'usb',
+                          label: Text('USB'),
+                          icon: Icon(Icons.usb),
+                        ),
+                        ButtonSegment(
+                          value: 'bluetooth',
+                          label: Text('Bluetooth'),
+                          icon: Icon(Icons.bluetooth),
+                        ),
+                        ButtonSegment(
+                          value: 'smartpos',
+                          label: Text('Built-in'),
+                          icon: Icon(Icons.receipt_long),
+                        ),
+                      ],
+                      onSelectionChanged: (value) {
+                        setState(() {
+                          _connectionType = value.first;
+                          _devices = const [];
+                          _selectedDevice = null;
+                          if (_connectionType == 'smartpos') {
+                            _devices = const [
+                              PrinterDeviceInfo(
+                                name: 'SmartPOS built-in printer',
+                                connectionType: 'smartpos',
+                                isConnected: true,
+                              ),
+                            ];
+                            _selectedDevice = _devices.first;
+                            _nameController.text = _devices.first.name;
+                          }
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    if (_connectionType == 'lan') ...[
+                      TextField(
+                        controller: _hostController,
+                        style: const TextStyle(
+                          color: Color(0xFF111827),
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Printer IP address',
+                          hintText: '192.168.1.50',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _portController,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(
+                          color: Color(0xFF111827),
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: const InputDecoration(labelText: 'Port'),
+                      ),
+                    ] else if (_connectionType == 'smartpos') ...[
+                      const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          Icons.check_circle,
+                          color: Color(0xFF10B981),
+                        ),
+                        title: Text('SmartPOS built-in printer'),
+                        subtitle: Text(
+                          'Prints through the Android SmartPOS SDK.',
+                        ),
+                      ),
+                    ] else ...[
+                      FilledButton.icon(
+                        onPressed: _scanning ? null : _scan,
+                        icon: _scanning
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.search),
+                        label: const Text('Scan printers'),
+                      ),
+                      const SizedBox(height: 10),
+                      for (final device in _devices) ...[
+                        ListTile(
+                          selected: _samePrinterDevice(device, _selectedDevice),
+                          leading: Icon(
+                            _samePrinterDevice(device, _selectedDevice)
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                          ),
+                          title: Text(device.name),
+                          subtitle: Text(
+                            device.address ??
+                                device.vendorId ??
+                                device.productId ??
+                                _connectionType.toUpperCase(),
+                          ),
+                          onTap: () {
+                            setState(() {
+                              _selectedDevice = device;
+                              _nameController.text = device.name;
+                            });
+                          },
+                        ),
+                      ],
+                      if (_selectedDevice == null && _devices.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: Text(
+                            'Scan and select a USB/Bluetooth printer.',
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 14),
+                    SwitchListTile(
+                      value: _enabled,
+                      onChanged: (value) => setState(() => _enabled = value),
+                      title: const Text('Active'),
+                    ),
+                    SwitchListTile(
+                      value: _printReceipts,
+                      onChanged: (value) =>
+                          setState(() => _printReceipts = value),
+                      title: const Text('POS customer receipts'),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _save,
+                        icon: const Icon(Icons.save),
+                        label: const Text('Save'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
