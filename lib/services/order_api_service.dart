@@ -17,9 +17,15 @@ class PosOrderApiService {
   final Dio _dio;
 
   Future<PosOrderResult> createOrder(CreatePosOrderRequest request) async {
+    return createOrderFromPayload(request.toJson());
+  }
+
+  Future<PosOrderResult> createOrderFromPayload(
+    Map<String, dynamic> payload,
+  ) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/orders',
-      data: request.toJson(),
+      data: payload,
     );
     return PosOrderResult.fromResponse(unwrapDataMap(response.data));
   }

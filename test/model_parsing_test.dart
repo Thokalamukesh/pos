@@ -4,6 +4,7 @@ import 'package:selfx_pos/models/order_models.dart';
 import 'package:selfx_pos/models/pairing_models.dart';
 import 'package:selfx_pos/models/pos_bootstrap.dart';
 import 'package:selfx_pos/models/printer_config.dart';
+import 'package:selfx_pos/repositories/offline_order_repository.dart';
 import 'package:selfx_pos/repositories/shift_repository.dart';
 import 'package:selfx_pos/services/shift_api_service.dart';
 import 'package:selfx_pos/services/receipt_printer_service.dart';
@@ -235,6 +236,38 @@ void main() {
     expect(response.paymentStatus, 'pending');
     expect(response.total, 90);
     expect(response.timeoutSeconds, 300);
+  });
+
+  test('offline queued order serializes pending sync state', () {
+    final createdAt = DateTime.utc(2026, 7, 12, 10, 30);
+    final order = OfflineQueuedOrder(
+      localId: 'OFF-T1-123',
+      createdAt: createdAt,
+      request: {
+        'type': 'dine_in',
+        'pos_terminal_code': 'T1',
+        'items': [
+          {'menu_item_id': 5, 'quantity': 1},
+        ],
+        'pos_register_payment': {'method': 'cash', 'cash_tendered': 100.0},
+      },
+      paymentMethod: 'cash',
+      total: 90,
+      status: OfflineOrderStatus.pending,
+      attempts: 1,
+      lastError: 'No internet',
+    );
+
+    final parsed = OfflineQueuedOrder.fromJson(order.toJson());
+
+    expect(parsed.localId, 'OFF-T1-123');
+    expect(parsed.createdAt, createdAt);
+    expect(parsed.request['pos_terminal_code'], 'T1');
+    expect(parsed.paymentMethod, 'cash');
+    expect(parsed.total, 90);
+    expect(parsed.status, OfflineOrderStatus.pending);
+    expect(parsed.attempts, 1);
+    expect(parsed.lastError, 'No internet');
   });
 
   test(

@@ -15,10 +15,12 @@ import '../../models/pos_bootstrap.dart';
 import '../../models/pos_terminal.dart';
 import '../../models/printer_config.dart';
 import '../../repositories/order_repository.dart';
+import '../../repositories/offline_order_repository.dart';
 import '../../repositories/pos_menu_repository.dart';
 import '../../repositories/printer_repository.dart';
 import '../../repositories/shift_repository.dart';
 import '../../services/fullscreen/fullscreen_service.dart';
+import '../../services/offline_order_sync_service.dart';
 import '../../services/smartpos_customer_display_service.dart';
 import '../../theme/app_theme.dart';
 import '../auth/auth_controller.dart';
@@ -845,10 +847,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         'register=${_registerPaymentFor(payment)?.toJson()}',
       );
     }
+    final request = _orderRequest(payment);
 
     setState(() => _isCharging = true);
     try {
-      final request = _orderRequest(payment);
       if (payment.method == 'upi') {
         _debugUpiQr(
           'creating order type=${request.type} terminal=${request.posTerminalCode} '
@@ -1045,13 +1047,62 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         _showSnack('Print failed: ${_errorMessage(printError)}', isError: true);
       }
     } on Object catch (error) {
+      final queued = await _queueOfflineOrderIfNeeded(
+        error: error,
+        payment: payment,
+        request: request,
+      );
+      if (queued) {
+        return;
+      }
       if (mounted) {
-        _showSnack(_errorMessage(error), isError: true);
+        final message =
+            payment.method == 'upi' && error is AppException && error.isNetwork
+            ? 'UPI QR needs internet. Use cash/card offline, or try UPI when online.'
+            : _errorMessage(error);
+        _showSnack(message, isError: true);
       }
     } finally {
       if (mounted) {
         setState(() => _isCharging = false);
       }
+    }
+  }
+
+  Future<bool> _queueOfflineOrderIfNeeded({
+    required Object error,
+    required _PaymentSelection payment,
+    required CreatePosOrderRequest request,
+  }) async {
+    if (payment.method == 'upi' || error is! AppException || !error.isNetwork) {
+      return false;
+    }
+    try {
+      final queued = await ref
+          .read(offlineOrderRepositoryProvider)
+          .enqueue(
+            request: request,
+            paymentMethod: payment.method,
+            total: _payable,
+          );
+      unawaited(ref.read(offlineOrderSyncServiceProvider).syncNow());
+      if (!mounted) {
+        return true;
+      }
+      setState(_clearOrderState);
+      _queueDisplaySync(clear: true);
+      _showNotice(
+        'Offline order saved (${queued.localId}). It will sync when internet returns.',
+      );
+      return true;
+    } on Object catch (queueError) {
+      if (mounted) {
+        _showSnack(
+          'Offline save failed: ${_errorMessage(queueError)}',
+          isError: true,
+        );
+      }
+      return true;
     }
   }
 
