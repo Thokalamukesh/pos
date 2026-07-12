@@ -132,12 +132,16 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
     final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: _DisplayColors.surface,
+        backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Logout?'),
+        title: const Text(
+          'Logout?',
+          style: TextStyle(color: Color(0xFF111827)),
+        ),
         content: const Text(
           'Exit the order board and sign out from this device?',
+          style: TextStyle(color: Color(0xFF475569)),
         ),
         actions: [
           TextButton(
@@ -878,7 +882,7 @@ class _SetupSheet extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 620),
           child: Material(
-            color: _DisplayColors.surface,
+            color: Colors.white,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.all(22),
@@ -894,7 +898,7 @@ class _SetupSheet extends StatelessWidget {
                         child: Text(
                           'Order Board Setup',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: Color(0xFF111827),
                             fontSize: 22,
                             fontWeight: FontWeight.w900,
                           ),
@@ -903,6 +907,7 @@ class _SetupSheet extends StatelessWidget {
                       IconButton(
                         tooltip: 'Close',
                         onPressed: () => Navigator.of(context).pop(),
+                        color: const Color(0xFF111827),
                         icon: const Icon(Icons.close),
                       ),
                     ],
@@ -971,17 +976,20 @@ class _SetupField extends StatelessWidget {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+      style: const TextStyle(
+        color: Color(0xFF111827),
+        fontWeight: FontWeight.w700,
+      ),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        labelStyle: const TextStyle(color: _DisplayColors.muted),
-        hintStyle: const TextStyle(color: Color(0xFF66636F)),
+        labelStyle: const TextStyle(color: Color(0xFF64748B)),
+        hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
         filled: true,
-        fillColor: const Color(0xFF0E0E12),
+        fillColor: Colors.white,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: _DisplayColors.border),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),

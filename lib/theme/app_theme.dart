@@ -133,6 +133,11 @@ class AppTheme {
         shape: border,
         surfaceTintColor: Colors.transparent,
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: border,
+      ),
       inputDecorationTheme: InputDecorationTheme(
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         filled: true,
