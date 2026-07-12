@@ -1608,7 +1608,7 @@ class _PosHeader extends StatelessWidget {
                   child: compact
                       ? IconButton(
                           style: iconButtonStyle,
-                          tooltip: 'Order Board',
+                          tooltip: 'Order History',
                           onPressed: onCustomerDisplay,
                           icon: const Icon(
                             Icons.connected_tv_outlined,
@@ -1634,7 +1634,7 @@ class _PosHeader extends StatelessWidget {
                             Icons.connected_tv_outlined,
                             color: Color(0xFF10B981),
                           ),
-                          label: const Text('Order Board'),
+                          label: const Text('Order History'),
                         ),
                 ),
                 const SizedBox(width: 8),
@@ -1788,9 +1788,9 @@ class _DisplayLauncherDialog extends StatelessWidget {
               const SizedBox(height: 10),
               _DisplayLaunchTile(
                 icon: Icons.connected_tv_outlined,
-                title: 'Order Board',
+                title: 'Order History',
                 subtitle:
-                    'Opens the full-screen order board for customer tokens.',
+                    'Opens the full-screen order history for customer tokens.',
                 onTap: () =>
                     Navigator.of(context).pop(_DisplayLaunchAction.customer),
               ),
@@ -2817,7 +2817,7 @@ class _MenuImage extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFFAF7F0), Color(0xFFF1ECE2)],
+          colors: [Color(0xFFF8FAFC), Color(0xFFF1F5F9)],
         ),
       ),
       child: Image.network(
@@ -2845,7 +2845,7 @@ class _ImageFallback extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFFAF7F0), Color(0xFFF1ECE2)],
+          colors: [Color(0xFFF8FAFC), Color(0xFFF1F5F9)],
         ),
       ),
       child: Center(
@@ -2854,8 +2854,8 @@ class _ImageFallback extends StatelessWidget {
           height: 74,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: const Color(0xFFFFFCF7),
-            border: Border.all(color: const Color(0xFFE7DDCE)),
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFFE2E8F0)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.06),
@@ -6140,7 +6140,7 @@ class _DiscountDialogState extends State<_DiscountDialog> {
     final initialValue = widget.initial?.value;
     _valueController = TextEditingController(
       text: initialValue == null || initialValue == 0
-          ? (_type == 'percent' ? '10' : '')
+          ? ''
           : _cleanNumber(initialValue),
     );
     _reasonController = TextEditingController(
@@ -6176,9 +6176,6 @@ class _DiscountDialogState extends State<_DiscountDialog> {
   void _selectType(String type) {
     setState(() {
       _type = type;
-      if (type == 'percent' && _valueController.text.trim().isEmpty) {
-        _valueController.text = '10';
-      }
     });
   }
 
@@ -6347,7 +6344,7 @@ class _DiscountDialogState extends State<_DiscountDialog> {
                           labelText: _type == 'percent'
                               ? 'Percent (0-100)'
                               : 'Amount',
-                          hintText: _type == 'percent' ? '10' : '0.00',
+                          hintText: _type == 'percent' ? '0' : '0.00',
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -7421,6 +7418,26 @@ class _HeldTicketCard extends StatelessWidget {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(ticket),
+                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                      label: const Text('Resume'),
+                    ),
+                  ),
                 ],
               ),
             ),

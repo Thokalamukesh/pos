@@ -22,7 +22,18 @@ class ShiftApiService {
   }
 
   Future<Map<String, dynamic>> summary() async {
-    final response = await _dio.get<Map<String, dynamic>>(
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '${AppConfig.apiPrefix}/pos/shift/summary',
+      );
+      return unwrapDataMap(response.data);
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status != 404 && status != 405) {
+        rethrow;
+      }
+    }
+    final response = await _dio.post<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/shift/summary',
     );
     return unwrapDataMap(response.data);

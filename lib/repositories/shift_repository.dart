@@ -33,13 +33,30 @@ class ShiftRepository {
     required double openingCashFloat,
     String? notes,
   }) async {
+    final openingFloatText = openingCashFloat.toStringAsFixed(2);
     final payloads = [
       {
         'opening_float': openingCashFloat,
         if (_hasText(notes)) 'notes_opening': notes!.trim(),
       },
       {
+        'opening_float': openingFloatText,
+        if (_hasText(notes)) 'notes_opening': notes!.trim(),
+      },
+      {
         'opening_cash_float': openingCashFloat,
+        if (_hasText(notes)) 'notes': notes!.trim(),
+      },
+      {
+        'opening_cash_float': openingFloatText,
+        if (_hasText(notes)) 'notes': notes!.trim(),
+      },
+      {
+        'opening_cash': openingCashFloat,
+        if (_hasText(notes)) 'notes_opening': notes!.trim(),
+      },
+      {
+        'opening_cash': openingFloatText,
         if (_hasText(notes)) 'notes': notes!.trim(),
       },
     ];
