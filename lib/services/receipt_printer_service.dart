@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image/image.dart' as image;
+import 'package:qr/qr.dart' as qr;
 
 import '../models/order_models.dart';
 
@@ -94,16 +96,18 @@ class ReceiptPrinterService {
     final order = receipt.order;
     bytes.addAll(generator.reset());
     bytes.addAll(
-      generator.text(
-        _printerText(
+      _renderTextLines(
+        generator,
+        [
           _firstText(receipt.raw, const [
             'restaurant_name',
             'restaurant.name',
             'branch.restaurant_name',
           ], fallback: 'SELFX POS'),
-          currencyCode: currencyCode,
-        ),
+        ],
+        lineChars: lineChars,
         styles: const PosStyles(align: PosAlign.center, bold: true),
+        currencyCode: currencyCode,
       ),
     );
     final number = _firstText(order, const [
@@ -116,9 +120,12 @@ class ReceiptPrinterService {
     ]);
     if (number.isNotEmpty) {
       bytes.addAll(
-        generator.text(
-          'Receipt $number',
+        _renderTextLines(
+          generator,
+          ['Receipt $number'],
+          lineChars: lineChars,
           styles: const PosStyles(align: PosAlign.center),
+          currencyCode: currencyCode,
         ),
       );
     }
@@ -204,18 +211,40 @@ class ReceiptPrinterService {
     }
     bytes.addAll(generator.feed(2));
     bytes.addAll(
-      generator.text(
-        _receiptReminder,
+      _renderReceiptFooter(generator, lineChars, currencyCode: currencyCode),
+    );
+    bytes.addAll(generator.cut());
+    return bytes;
+  }
+
+  List<int> _renderReceiptFooter(
+    Generator generator,
+    int lineChars, {
+    String? currencyCode,
+  }) {
+    final bytes = <int>[];
+    bytes.addAll(
+      _renderTextLines(
+        generator,
+        _wrappedPrinterLines(
+          _receiptReminder,
+          lineChars,
+          currencyCode: currencyCode,
+        ),
+        lineChars: lineChars,
         styles: const PosStyles(align: PosAlign.center),
+        currencyCode: currencyCode,
       ),
     );
     bytes.addAll(
-      generator.text(
-        _footerBrand,
+      _renderTextLines(
+        generator,
+        const [_footerBrand],
+        lineChars: lineChars,
         styles: const PosStyles(align: PosAlign.center, bold: true),
+        currencyCode: currencyCode,
       ),
     );
-    bytes.addAll(generator.cut());
     return bytes;
   }
 
@@ -223,42 +252,50 @@ class ReceiptPrinterService {
     List<Map<String, dynamic>> commands,
   ) {
     final normalized = <Map<String, dynamic>>[];
-    for (var index = 0; index < commands.length; index += 1) {
-      final command = Map<String, dynamic>.from(commands[index]);
+    var footerInjected = false;
+    for (final original in commands) {
+      final command = Map<String, dynamic>.from(original);
       final type = _commandType(command);
-      if ((type == 'text' || type == 'line') &&
-          _isThankYouFooter(
-            _stringValue(
-              command['text'] ?? command['value'] ?? command['content'],
-            ),
-          )) {
-        command['text'] = _receiptReminder;
-        command['align'] = 'center';
-        command.remove('value');
-        command.remove('content');
-        normalized.add(command);
-
-        final nextType = index + 1 < commands.length
-            ? _commandType(commands[index + 1])
-            : '';
-        if (nextType != 'logo' && nextType != 'image') {
-          normalized.add(_footerBrandCommand());
+      if (_isOldFooterCommand(command)) {
+        continue;
+      }
+      if (type == 'logo' || type == 'image') {
+        continue;
+      }
+      if (type == 'cut') {
+        if (!footerInjected) {
+          normalized.add(_footerCommand());
+          footerInjected = true;
         }
+        normalized.add(command);
         continue;
       }
       normalized.add(command);
     }
+    if (!footerInjected) {
+      normalized.add(_footerCommand());
+    }
     return normalized;
   }
 
-  Map<String, dynamic> _footerBrandCommand() {
-    return const <String, dynamic>{'type': 'logo'};
+  Map<String, dynamic> _footerCommand() {
+    return const <String, dynamic>{'type': '_selfx_footer'};
+  }
+
+  bool _isOldFooterCommand(Map<String, dynamic> command) {
+    final type = _commandType(command);
+    if (type != 'text' && type != 'line') {
+      return false;
+    }
+    return _isThankYouFooter(
+      _stringValue(command['text'] ?? command['value'] ?? command['content']),
+    );
   }
 
   bool _isThankYouFooter(String value) {
     final normalized = value.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
-    return normalized == 'thankyouforyourorder' ||
-        normalized == 'thanksforyourorder';
+    return normalized.contains('thankyouforyourorder') ||
+        normalized.contains('thanksforyourorder');
   }
 
   List<int> _renderCommand(
@@ -269,6 +306,12 @@ class ReceiptPrinterService {
   }) {
     final type = _commandType(command);
     switch (type) {
+      case '_selfx_footer':
+        return _renderReceiptFooter(
+          generator,
+          lineChars,
+          currencyCode: currencyCode,
+        );
       case 'init':
         return generator.reset();
       case 'divider':
@@ -284,6 +327,7 @@ class ReceiptPrinterService {
         return _renderTextLines(
           generator,
           _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
+          lineChars: lineChars,
           styles: _styles(command),
           currencyCode: currencyCode,
         );
@@ -301,13 +345,13 @@ class ReceiptPrinterService {
         );
         return data.isEmpty
             ? const <int>[]
-            : generator.qrcode(
+            : _renderCenteredQrImage(
+                generator,
                 data,
-                align: PosAlign.center,
-                size: _qrSize(command['size'] ?? command['qr_size']),
-                cor: _qrCorrection(
-                  command['correction'] ?? command['error_correction'],
-                ),
+                lineChars,
+                size: command['size'] ?? command['qr_size'],
+                correction:
+                    command['correction'] ?? command['error_correction'],
               );
       case 'barcode':
         final data = _stringValue(
@@ -317,8 +361,11 @@ class ReceiptPrinterService {
           return const <int>[];
         }
         return generator.text(
-          _printerText(data, currencyCode: currencyCode),
-          styles: const PosStyles(align: PosAlign.center),
+          _centerAlign(
+            _printerText(data, currencyCode: currencyCode),
+            lineChars,
+          ),
+          styles: const PosStyles(align: PosAlign.left),
         );
       case 'feed':
       case 'space':
@@ -334,6 +381,7 @@ class ReceiptPrinterService {
         return _renderTextLines(
           generator,
           const [_footerBrand],
+          lineChars: lineChars,
           styles: const PosStyles(align: PosAlign.center, bold: true),
           currencyCode: currencyCode,
         );
@@ -348,6 +396,7 @@ class ReceiptPrinterService {
         return _renderTextLines(
           generator,
           _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
+          lineChars: lineChars,
           styles: _styles(command),
           currencyCode: currencyCode,
         );
@@ -387,6 +436,58 @@ class ReceiptPrinterService {
     }
 
     return const <int>[];
+  }
+
+  List<int> _renderCenteredQrImage(
+    Generator generator,
+    String data,
+    int lineChars, {
+    Object? size,
+    Object? correction,
+  }) {
+    try {
+      final canvasWidth = _printableDotWidth(lineChars);
+      final qrSize = _qrImageSize(lineChars, size);
+      final canvasHeight = qrSize + 16;
+      final canvas = image.Image(width: canvasWidth, height: canvasHeight);
+      image.fill(canvas, color: image.ColorRgb8(255, 255, 255));
+
+      final qrCode = qr.QrCode.fromData(
+        data: data,
+        errorCorrectLevel: _qrPackageCorrection(correction),
+      );
+      final qrImage = qr.QrImage(qrCode);
+      final moduleCount = qrImage.moduleCount + 8;
+      final moduleSize = math.max(2, qrSize ~/ moduleCount);
+      final renderedSize = moduleCount * moduleSize;
+      final left = math.max(0, (canvasWidth - renderedSize) ~/ 2);
+      const top = 8;
+      final black = image.ColorRgb8(0, 0, 0);
+
+      for (var row = 0; row < qrImage.moduleCount; row += 1) {
+        for (var col = 0; col < qrImage.moduleCount; col += 1) {
+          if (!qrImage.isDark(row, col)) {
+            continue;
+          }
+          _fillRect(
+            canvas,
+            x: left + ((col + 4) * moduleSize),
+            y: top + ((row + 4) * moduleSize),
+            size: moduleSize,
+            color: black,
+          );
+        }
+      }
+
+      return generator.imageRaster(canvas, align: PosAlign.left);
+    } catch (_) {
+      return generator.qrcode(
+        data,
+        align: PosAlign.center,
+        size: _qrSize(size),
+        cor: _qrCorrection(correction),
+      );
+    }
   }
 
   List<int> _renderColumns(
@@ -493,15 +594,21 @@ String _commandType(Map<String, dynamic> command) {
 List<int> _renderTextLines(
   Generator generator,
   Iterable<String> lines, {
+  int? lineChars,
   PosStyles styles = const PosStyles(),
   String? currencyCode,
 }) {
   final bytes = <int>[];
+  final manuallyCenter = styles.align == PosAlign.center && lineChars != null;
+  final effectiveStyles = manuallyCenter
+      ? styles.copyWith(align: PosAlign.left)
+      : styles;
   for (final line in lines) {
+    final text = _printerText(line, currencyCode: currencyCode);
     bytes.addAll(
       generator.text(
-        _printerText(line, currencyCode: currencyCode),
-        styles: styles,
+        manuallyCenter ? _centerAlign(text, lineChars) : text,
+        styles: effectiveStyles,
       ),
     );
   }
@@ -703,6 +810,65 @@ QRCorrection _qrCorrection(Object? value) {
     case 'low':
     default:
       return QRCorrection.L;
+  }
+}
+
+int _qrPackageCorrection(Object? value) {
+  switch (_stringValue(value).toLowerCase()) {
+    case 'm':
+    case 'medium':
+      return qr.QrErrorCorrectLevel.M;
+    case 'q':
+    case 'quartile':
+      return qr.QrErrorCorrectLevel.Q;
+    case 'h':
+    case 'high':
+      return qr.QrErrorCorrectLevel.H;
+    case 'l':
+    case 'low':
+    default:
+      return qr.QrErrorCorrectLevel.L;
+  }
+}
+
+int _printableDotWidth(int lineChars) {
+  if (lineChars <= 32) {
+    return 384;
+  }
+  if (lineChars <= 42) {
+    return 512;
+  }
+  return 576;
+}
+
+int _qrImageSize(int lineChars, Object? value) {
+  final text = _stringValue(value).toLowerCase();
+  final numeric = int.tryParse(text.replaceAll(RegExp(r'[^0-9]'), ''));
+  if (numeric != null && numeric >= 80) {
+    return numeric.clamp(120, _printableDotWidth(lineChars) - 32);
+  }
+  if (text.contains('small')) {
+    return lineChars <= 32 ? 176 : 216;
+  }
+  if (text.contains('large')) {
+    return lineChars <= 32 ? 248 : 300;
+  }
+  return lineChars <= 32 ? 216 : 264;
+}
+
+void _fillRect(
+  image.Image canvas, {
+  required int x,
+  required int y,
+  required int size,
+  required image.Color color,
+}) {
+  final maxX = math.min(canvas.width, x + size);
+  final maxY = math.min(canvas.height, y + size);
+  for (var py = math.max(0, y); py < maxY; py += 1) {
+    for (var px = math.max(0, x); px < maxX; px += 1) {
+      canvas.setPixel(px, py, color);
+    }
   }
 }
 

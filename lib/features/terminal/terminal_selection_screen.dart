@@ -58,23 +58,50 @@ class TerminalSelectionScreen extends ConsumerWidget {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Card(
                       child: ListTile(
-                        leading: CircleAvatar(
-                          child: Text(
-                            terminal.code,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w900,
-                            ),
+                        minLeadingWidth: 74,
+                        leading: Container(
+                          width: 64,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.point_of_sale,
+                                color: Color(0xFF2563EB),
+                                size: 20,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                terminal.code,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF1E3A8A),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        title: Text(terminal.name),
+                        title: Text(
+                          terminal.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
                         subtitle: Text(
                           terminal.displayUrl ??
                               'Customer display sync token available',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        trailing: FilledButton(
+                        trailing: FilledButton.icon(
                           onPressed: terminalState.isLoading
                               ? null
                               : () async {
@@ -96,7 +123,8 @@ class TerminalSelectionScreen extends ConsumerWidget {
                                     );
                                   }
                                 },
-                          child: const Text('Use'),
+                          icon: const Icon(Icons.login, size: 18),
+                          label: const Text('Use'),
                         ),
                       ),
                     ),

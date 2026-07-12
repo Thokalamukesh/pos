@@ -46,6 +46,8 @@ dependencies:
   connectivity_plus: ^7.2.0
   intl: ^0.20.3
   esc_pos_utils_plus: ^2.0.4
+  image: ^4.8.0
+  qr: ^3.0.2
   flutter_thermal_printer: ^2.0.1
   web: ^1.1.1
   audioplayers: ^6.7.1

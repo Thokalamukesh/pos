@@ -69,7 +69,7 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
                         controlsVisible:
                             _controlsVisible || constraints.maxWidth < 900,
                         fullscreen: _fullscreen,
-                        onBackToKitchen: () => context.go('/pos'),
+                        onBackToKitchen: _exitToPos,
                         onSetup: () => _showSetupSheet(context, state),
                         onFullscreen: _toggleFullscreen,
                         onLogout: _confirmLogout,
@@ -124,6 +124,14 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
     await SystemChrome.setEnabledSystemUIMode(
       _fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
     );
+  }
+
+  void _exitToPos() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/pos');
   }
 
   Future<void> _confirmLogout() async {

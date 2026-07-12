@@ -382,6 +382,34 @@ void main() {
     },
   );
 
+  test(
+    'receipt printer appends production footer when server omits it',
+    () async {
+      final receipt = ReceiptPrintObject.fromResponse({
+        'order': {'id': 88},
+        'print_object': {
+          'paper': '56mm',
+          'print_object': [
+            {'type': 'init'},
+            {'type': 'text', 'text': 'Fixture Restaurant', 'align': 'center'},
+            {'type': 'row', 'left': 'Total', 'right': 'Rs 120.00'},
+            {'type': 'cut'},
+          ],
+        },
+      });
+
+      final bytes = await ReceiptPrinterService().buildEscPos(receipt);
+      final text = String.fromCharCodes(bytes);
+
+      expect(text, contains('Check your belongings before'));
+      expect(text, contains('SELFX POS'));
+      expect(
+        text.indexOf('Rs 120.00'),
+        lessThan(text.indexOf('Check your belongings before')),
+      );
+    },
+  );
+
   test('printer config persists LAN receipt settings', () {
     final config = PrinterConfig.fromJson({
       'name': 'Counter receipt',
