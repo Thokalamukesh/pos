@@ -5309,6 +5309,8 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
       'cash_sales',
       'cash_total',
       'cash_payments_total',
+      'cash_from_sales',
+      'cash_tendered_total',
       'cash.sales',
       'cash_drawer.cash_sales',
       'drawer.cash_sales',
@@ -5324,6 +5326,7 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
 
   double get _changeGiven => _summaryAmount(widget.summary, const [
     'change_given',
+    'change_given_total',
     'cash_change_given',
     'cash.change_given',
     'cash_drawer.change_given',
@@ -5411,6 +5414,13 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
                 counted: counted,
                 variance: variance,
               ),
+              if (_unpaidOrders > 0) ...[
+                const SizedBox(height: 16),
+                _CloseShiftWarning(
+                  message:
+                      '$_unpaidOrders unpaid orders totaling ${widget.money.format(_unpaidAmount)} are still open.',
+                ),
+              ],
               const SizedBox(height: 24),
               _ShiftFieldLabel('Cash counted in drawer'),
               const SizedBox(height: 6),
@@ -5452,6 +5462,46 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             label: 'Close shift',
             primary: true,
             onPressed: _submit,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CloseShiftWarning extends StatelessWidget {
+  const _CloseShiftWarning({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFED7AA)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFFC2410C),
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF7C2D12),
+                fontSize: 14,
+                height: 1.3,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -5937,12 +5987,15 @@ double _closeShiftExpected(Map<String, dynamic> summary) {
     'cash_sales',
     'cash_total',
     'cash_payments_total',
+    'cash_from_sales',
+    'cash_tendered_total',
     'cash.sales',
     'cash_drawer.cash_sales',
     'drawer.cash_sales',
   ]);
   final changeGiven = _summaryAmount(summary, const [
     'change_given',
+    'change_given_total',
     'cash_change_given',
     'cash.change_given',
     'cash_drawer.change_given',

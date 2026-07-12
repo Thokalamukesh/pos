@@ -26,7 +26,7 @@ class ShiftApiService {
       final response = await _dio.get<Map<String, dynamic>>(
         '${AppConfig.apiPrefix}/pos/shift/summary',
       );
-      return unwrapDataMap(response.data);
+      return _unwrapSummary(response.data);
     } on DioException catch (error) {
       final status = error.response?.statusCode;
       if (status != 404 && status != 405) {
@@ -36,7 +36,7 @@ class ShiftApiService {
     final response = await _dio.post<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/shift/summary',
     );
-    return unwrapDataMap(response.data);
+    return _unwrapSummary(response.data);
   }
 
   Future<Map<String, dynamic>> open(Map<String, dynamic> payload) async {
@@ -54,4 +54,13 @@ class ShiftApiService {
     );
     return unwrapDataMap(response.data);
   }
+}
+
+Map<String, dynamic> _unwrapSummary(Object? responseData) {
+  final data = unwrapDataMap(responseData);
+  final summary = data['summary'];
+  if (summary is Map) {
+    return Map<String, dynamic>.from(summary);
+  }
+  return data;
 }
