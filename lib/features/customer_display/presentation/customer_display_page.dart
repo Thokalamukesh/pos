@@ -8,7 +8,6 @@ import 'package:intl/intl.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../auth/login_screen.dart';
-import '../../display/kitchen_display_screen.dart';
 import '../application/customer_display_controller.dart';
 import '../domain/customer_display_models.dart';
 
@@ -70,8 +69,7 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
                         controlsVisible:
                             _controlsVisible || constraints.maxWidth < 900,
                         fullscreen: _fullscreen,
-                        onBackToKitchen: () =>
-                            context.go(KitchenDisplayScreen.routePath),
+                        onBackToKitchen: () => context.go('/pos'),
                         onSetup: () => _showSetupSheet(context, state),
                         onFullscreen: _toggleFullscreen,
                         onLogout: _confirmLogout,

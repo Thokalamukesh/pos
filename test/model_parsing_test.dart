@@ -351,6 +351,37 @@ void main() {
     expect(text, isNot(contains('·')));
   });
 
+  test(
+    'receipt printer replaces footer reminder and prints small brand mark',
+    () async {
+      final receipt = ReceiptPrintObject.fromResponse({
+        'order': {'id': 88},
+        'print_object': {
+          'paper': '56mm',
+          'print_object': [
+            {'type': 'init'},
+            {'type': 'qr', 'data': 'https://app.selfx.in/order/88'},
+            {'type': 'text', 'text': 'Thank you for your order!'},
+            {'type': 'divider'},
+            {'type': 'cut'},
+          ],
+        },
+      });
+
+      final bytes = await ReceiptPrinterService().buildEscPos(receipt);
+      final text = String.fromCharCodes(bytes);
+
+      expect(text, contains('Check your belongings before'));
+      expect(text, contains('you leave'));
+      expect(text, contains('SELFX POS'));
+      expect(text, isNot(contains('Thank you for your order')));
+      expect(
+        text.indexOf('Check your belongings before'),
+        lessThan(text.indexOf('SELFX POS')),
+      );
+    },
+  );
+
   test('printer config persists LAN receipt settings', () {
     final config = PrinterConfig.fromJson({
       'name': 'Counter receipt',

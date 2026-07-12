@@ -10,6 +10,8 @@ final receiptPrinterServiceProvider = Provider<ReceiptPrinterService>((ref) {
 });
 
 class ReceiptPrinterService {
+  static const _receiptReminder = 'Check your belongings before you leave';
+  static const _footerBrand = 'SELFX POS';
   static Future<CapabilityProfile>? _profileFuture;
 
   Future<List<int>> buildEscPos(
@@ -36,9 +38,11 @@ class ReceiptPrinterService {
       return bytes;
     }
 
+    final commands = _productionReceiptCommands(receipt.commands);
+
     var hasInit = false;
     var hasCut = false;
-    for (final command in receipt.commands) {
+    for (final command in commands) {
       final type = _commandType(command);
       hasInit = hasInit || type == 'init';
       hasCut = hasCut || type == 'cut';
@@ -47,7 +51,7 @@ class ReceiptPrinterService {
     if (!hasInit) {
       bytes.addAll(generator.reset());
     }
-    for (final command in receipt.commands) {
+    for (final command in commands) {
       bytes.addAll(
         _renderCommand(
           generator,
@@ -199,8 +203,62 @@ class ReceiptPrinterService {
       );
     }
     bytes.addAll(generator.feed(2));
+    bytes.addAll(
+      generator.text(
+        _receiptReminder,
+        styles: const PosStyles(align: PosAlign.center),
+      ),
+    );
+    bytes.addAll(
+      generator.text(
+        _footerBrand,
+        styles: const PosStyles(align: PosAlign.center, bold: true),
+      ),
+    );
     bytes.addAll(generator.cut());
     return bytes;
+  }
+
+  List<Map<String, dynamic>> _productionReceiptCommands(
+    List<Map<String, dynamic>> commands,
+  ) {
+    final normalized = <Map<String, dynamic>>[];
+    for (var index = 0; index < commands.length; index += 1) {
+      final command = Map<String, dynamic>.from(commands[index]);
+      final type = _commandType(command);
+      if ((type == 'text' || type == 'line') &&
+          _isThankYouFooter(
+            _stringValue(
+              command['text'] ?? command['value'] ?? command['content'],
+            ),
+          )) {
+        command['text'] = _receiptReminder;
+        command['align'] = 'center';
+        command.remove('value');
+        command.remove('content');
+        normalized.add(command);
+
+        final nextType = index + 1 < commands.length
+            ? _commandType(commands[index + 1])
+            : '';
+        if (nextType != 'logo' && nextType != 'image') {
+          normalized.add(_footerBrandCommand());
+        }
+        continue;
+      }
+      normalized.add(command);
+    }
+    return normalized;
+  }
+
+  Map<String, dynamic> _footerBrandCommand() {
+    return const <String, dynamic>{'type': 'logo'};
+  }
+
+  bool _isThankYouFooter(String value) {
+    final normalized = value.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
+    return normalized == 'thankyouforyourorder' ||
+        normalized == 'thanksforyourorder';
   }
 
   List<int> _renderCommand(
@@ -241,7 +299,16 @@ class ReceiptPrinterService {
         final data = _stringValue(
           command['data'] ?? command['text'] ?? command['value'],
         );
-        return data.isEmpty ? const <int>[] : generator.qrcode(data);
+        return data.isEmpty
+            ? const <int>[]
+            : generator.qrcode(
+                data,
+                align: PosAlign.center,
+                size: _qrSize(command['size'] ?? command['qr_size']),
+                cor: _qrCorrection(
+                  command['correction'] ?? command['error_correction'],
+                ),
+              );
       case 'barcode':
         final data = _stringValue(
           command['data'] ?? command['text'] ?? command['value'],
@@ -264,7 +331,12 @@ class ReceiptPrinterService {
         return generator.cut();
       case 'logo':
       case 'image':
-        return const <int>[];
+        return _renderTextLines(
+          generator,
+          const [_footerBrand],
+          styles: const PosStyles(align: PosAlign.center, bold: true),
+          currencyCode: currencyCode,
+        );
       case 'text':
       default:
         final text = _stringValue(
@@ -598,6 +670,40 @@ PosTextSize _textSize(Object? value) {
     return PosTextSize.size2;
   }
   return PosTextSize.size1;
+}
+
+QRSize _qrSize(Object? value) {
+  final text = _stringValue(value).toLowerCase();
+  final numeric = int.tryParse(text.replaceAll(RegExp(r'[^0-9]'), ''));
+  final size = numeric ?? (text.contains('small') ? 3 : 4);
+  return switch (size.clamp(1, 8)) {
+    1 => QRSize.size1,
+    2 => QRSize.size2,
+    3 => QRSize.size3,
+    4 => QRSize.size4,
+    5 => QRSize.size5,
+    6 => QRSize.size6,
+    7 => QRSize.size7,
+    _ => QRSize.size8,
+  };
+}
+
+QRCorrection _qrCorrection(Object? value) {
+  switch (_stringValue(value).toLowerCase()) {
+    case 'm':
+    case 'medium':
+      return QRCorrection.M;
+    case 'q':
+    case 'quartile':
+      return QRCorrection.Q;
+    case 'h':
+    case 'high':
+      return QRCorrection.H;
+    case 'l':
+    case 'low':
+    default:
+      return QRCorrection.L;
+  }
 }
 
 String _dividerChar(Map<String, dynamic> command) {
