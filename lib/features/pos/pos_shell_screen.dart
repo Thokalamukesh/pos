@@ -1147,6 +1147,63 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     final branchName = widget.data.branch?.name.trim();
     final total = totalOverride ?? _payable;
     final commands = <Map<String, dynamic>>[
+      ..._receiptCopyCommands(
+        restaurantName: restaurantName,
+        branchName: branchName,
+        title: title,
+        orderNumber: orderNumber,
+        token: token,
+        payment: payment,
+        createdAt: createdAt,
+        total: total,
+        qrData: qrData,
+      ),
+      {'type': 'cut'},
+      ..._receiptCopyCommands(
+        restaurantName: restaurantName,
+        branchName: branchName,
+        title: 'COUNTER COPY',
+        orderNumber: orderNumber,
+        token: token,
+        payment: payment,
+        createdAt: createdAt,
+        total: total,
+      ),
+      {'type': 'feed', 'lines': 1},
+      {'type': 'cut'},
+    ];
+
+    return ReceiptPrintObject.fromResponse({
+      'order': {
+        'id': orderId ?? orderNumber,
+        'order_number': orderNumber,
+        if (token != null && token.trim().isNotEmpty) 'token': token.trim(),
+        if (qrData != null && qrData.trim().isNotEmpty)
+          'tracking_url': qrData.trim(),
+        'type': _orderType,
+        'payment_method': payment.method,
+        'subtotal': _moneyValue(_subtotal),
+        'discount_total': _moneyValue(_discountAmount),
+        'total': _moneyValue(total),
+        'items': _cart.map((line) => line.toDisplayJson()).toList(),
+      },
+      'print_object': {'paper': '58mm', 'print_object': commands},
+    });
+  }
+
+  List<Map<String, dynamic>> _receiptCopyCommands({
+    required String? restaurantName,
+    required String? branchName,
+    required String title,
+    required String orderNumber,
+    required String? token,
+    required _PaymentSelection payment,
+    required DateTime createdAt,
+    required double total,
+    String? qrData,
+  }) {
+    final tokenText = token?.trim();
+    return <Map<String, dynamic>>[
       {'type': 'init'},
       {
         'type': 'text',
@@ -1159,12 +1216,12 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       if (branchName != null && branchName.isNotEmpty)
         {'type': 'text', 'text': branchName, 'align': 'center'},
       {'type': 'text', 'text': title, 'align': 'center', 'style': 'bold'},
-      if (token != null && token.trim().isNotEmpty)
+      if (tokenText != null && tokenText.isNotEmpty)
         {
           'type': 'text',
-          'text': 'TOKEN #${token.trim()}',
+          'text': 'TOKEN #$tokenText',
           'align': 'center',
-          'style': 'bold',
+          'style': 'bold_large',
         },
       {'type': 'divider'},
       {'type': 'row', 'left': 'Order', 'right': orderNumber},
@@ -1217,26 +1274,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         {'type': 'qr', 'data': qrData.trim(), 'align': 'center'},
         {'type': 'feed', 'lines': 1},
       ],
-      {'type': 'feed', 'lines': 1},
-      {'type': 'cut'},
     ];
-
-    return ReceiptPrintObject.fromResponse({
-      'order': {
-        'id': orderId ?? orderNumber,
-        'order_number': orderNumber,
-        if (token != null && token.trim().isNotEmpty) 'token': token.trim(),
-        if (qrData != null && qrData.trim().isNotEmpty)
-          'tracking_url': qrData.trim(),
-        'type': _orderType,
-        'payment_method': payment.method,
-        'subtotal': _moneyValue(_subtotal),
-        'discount_total': _moneyValue(_discountAmount),
-        'total': _moneyValue(total),
-        'items': _cart.map((line) => line.toDisplayJson()).toList(),
-      },
-      'print_object': {'paper': '58mm', 'print_object': commands},
-    });
   }
 
   String? _orderToken(PosOrderResult order) {
