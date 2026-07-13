@@ -28,4 +28,12 @@ class PosMenuRepository {
       throw AppException.fromDio(error);
     }
   }
+
+  Future<Map<String, dynamic>> fetchTables() async {
+    try {
+      return await _api.fetchTables();
+    } on DioException catch (error) {
+      throw AppException.fromDio(error);
+    }
+  }
 }

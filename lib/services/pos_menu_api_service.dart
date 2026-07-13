@@ -20,4 +20,11 @@ class PosMenuApiService {
     );
     return unwrapDataMap(response.data);
   }
+
+  Future<Map<String, dynamic>> fetchTables() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '${AppConfig.apiPrefix}/pos/tables',
+    );
+    return unwrapDataMap(response.data);
+  }
 }

@@ -133,6 +133,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   String? _orderNotes;
   String? _expandedCartLineKey;
   String? _selectedProductId;
+  _PosTable? _selectedTable;
   _Discount? _discount;
   bool _orderTypeExpanded = false;
   bool _customerSearchVisible = false;
@@ -563,6 +564,36 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _queueDisplaySync();
   }
 
+  Future<void> _editTable() async {
+    if (_orderType != 'dine_in') {
+      _showSnack('Tables are available for dine-in orders only.');
+      return;
+    }
+    try {
+      final data = await ref.read(posMenuRepositoryProvider).fetchTables();
+      final groups = _tableGroupsFromApi(data);
+      if (groups.every((group) => group.tables.isEmpty)) {
+        _showSnack('No tables are configured for this branch.', isError: true);
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      final result = await showDialog<_TablePickerResult>(
+        context: context,
+        builder: (context) =>
+            _TablePickerDialog(groups: groups, selectedTable: _selectedTable),
+      );
+      if (result == null) {
+        return;
+      }
+      setState(() => _selectedTable = result.clear ? null : result.table);
+      _queueDisplaySync();
+    } on Object catch (error) {
+      _showSnack('Tables failed: ${_errorMessage(error)}', isError: true);
+    }
+  }
+
   Future<void> _editLineNote(_CartLine line) async {
     final note = await _textDialog(
       title: 'Line note',
@@ -743,6 +774,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
           customerPhone: _customerPhone,
           customerAddress: _customerAddress,
           orderNotes: _orderNotes,
+          table: _selectedTable,
           discount: _discount,
           createdAt: DateTime.now(),
         ),
@@ -793,6 +825,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       _customerPhone = ticket.customerPhone;
       _customerAddress = ticket.customerAddress;
       _orderNotes = ticket.orderNotes;
+      _selectedTable = ticket.table;
       _orderNoteController.text = ticket.orderNotes ?? '';
       _orderNoteEditorVisible = ticket.orderNotes != null;
       _discount = ticket.discount;
@@ -1401,6 +1434,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   CreatePosOrderRequest _orderRequest(_PaymentSelection payment) {
     return CreatePosOrderRequest(
       type: _orderType,
+      tableId: _orderType == 'dine_in' ? _selectedTable?.id : null,
       posTerminalCode: widget.terminal.terminalCode,
       customerName: _customerName ?? 'Guest',
       customerPhone: _customerPhone,
@@ -1445,6 +1479,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _customerName = null;
     _customerPhone = null;
     _customerAddress = null;
+    _selectedTable = null;
     _orderNotes = null;
     _expandedCartLineKey = null;
     _orderNoteController.clear();
@@ -1594,6 +1629,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
             payable: _payable,
             customerName: _customerName,
             orderNotes: _orderNotes,
+            selectedTableName: _selectedTable?.name,
             orderNoteEditorVisible: _orderNoteEditorVisible,
             orderNoteController: _orderNoteController,
             isCharging: _isCharging,
@@ -1610,10 +1646,14 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
               setState(() {
                 _orderType = value;
                 _orderTypeExpanded = false;
+                if (value != 'dine_in') {
+                  _selectedTable = null;
+                }
               });
               _queueDisplaySync();
             },
             onDiscount: _editDiscount,
+            onTable: _editTable,
             onOrderNotes: _editOrderNotes,
             onOrderNotesChanged: _updateOrderNotes,
             expandedLineKey: _expandedCartLineKey,
@@ -3021,6 +3061,7 @@ class _CartPanel extends StatelessWidget {
     required this.payable,
     required this.customerName,
     required this.orderNotes,
+    required this.selectedTableName,
     required this.orderNoteEditorVisible,
     required this.orderNoteController,
     required this.isCharging,
@@ -3034,6 +3075,7 @@ class _CartPanel extends StatelessWidget {
     required this.onClearCart,
     required this.onOrderTypeChanged,
     required this.onDiscount,
+    required this.onTable,
     required this.onOrderNotes,
     required this.onOrderNotesChanged,
     required this.expandedLineKey,
@@ -3053,6 +3095,7 @@ class _CartPanel extends StatelessWidget {
   final double payable;
   final String? customerName;
   final String? orderNotes;
+  final String? selectedTableName;
   final bool orderNoteEditorVisible;
   final TextEditingController orderNoteController;
   final bool isCharging;
@@ -3066,6 +3109,7 @@ class _CartPanel extends StatelessWidget {
   final VoidCallback onClearCart;
   final ValueChanged<String> onOrderTypeChanged;
   final VoidCallback onDiscount;
+  final VoidCallback onTable;
   final VoidCallback onOrderNotes;
   final ValueChanged<String> onOrderNotesChanged;
   final String? expandedLineKey;
@@ -3262,6 +3306,25 @@ class _CartPanel extends StatelessWidget {
                           onPressed: onDiscount,
                           icon: const Icon(Icons.percent, size: 17),
                           label: const Text('Discount'),
+                        ),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            foregroundColor: Color(0xFFB45309),
+                            textStyle: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          onPressed: orderType == 'dine_in' ? onTable : null,
+                          icon: const Icon(Icons.table_restaurant, size: 17),
+                          label: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 88),
+                            child: Text(
+                              selectedTableName ?? 'Table',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ),
                         TextButton.icon(
                           style: TextButton.styleFrom(
@@ -6824,6 +6887,268 @@ String _cleanNumber(double value) {
   return value.toStringAsFixed(2);
 }
 
+class _TablePickerResult {
+  const _TablePickerResult({this.table, this.clear = false});
+
+  final _PosTable? table;
+  final bool clear;
+}
+
+class _TablePickerDialog extends StatelessWidget {
+  const _TablePickerDialog({required this.groups, required this.selectedTable});
+
+  final List<_TableAreaGroup> groups;
+  final _PosTable? selectedTable;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedId = selectedTable?.id.toString();
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 620,
+          maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 760),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Material(
+            color: Colors.white,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 18, 14, 14),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.table_restaurant,
+                          color: Color(0xFFB45309),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Select table',
+                              style: TextStyle(
+                                color: Color(0xFF0F172A),
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Assign this dine-in ticket to a table.',
+                              style: TextStyle(
+                                color: Color(0xFF64748B),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                    children: [
+                      for (final group in groups)
+                        if (group.tables.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Text(
+                              group.name.toUpperCase(),
+                              style: const TextStyle(
+                                color: Color(0xFF64748B),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              for (final table in group.tables)
+                                _TableChoiceButton(
+                                  table: table,
+                                  selected: table.id.toString() == selectedId,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 22),
+                        ],
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF8FAFC),
+                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                  ),
+                  child: Row(
+                    children: [
+                      if (selectedTable != null)
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFB91C1C),
+                            backgroundColor: Colors.white,
+                            side: const BorderSide(color: Color(0xFFFECACA)),
+                          ),
+                          onPressed: () => Navigator.of(
+                            context,
+                          ).pop(const _TablePickerResult(clear: true)),
+                          icon: const Icon(Icons.close, size: 17),
+                          label: const Text('Clear table'),
+                        ),
+                      const Spacer(),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF4F46E5),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Done'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TableChoiceButton extends StatelessWidget {
+  const _TableChoiceButton({required this.table, required this.selected});
+
+  final _PosTable table;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = table.status.trim();
+    final available = status.isEmpty || status.toLowerCase() == 'available';
+    return SizedBox(
+      width: 178,
+      child: Material(
+        color: selected ? const Color(0xFFEEF2FF) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () =>
+              Navigator.of(context).pop(_TablePickerResult(table: table)),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected
+                    ? const Color(0xFF4F46E5)
+                    : const Color(0xFFE2E8F0),
+                width: selected ? 1.6 : 1,
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        table.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (selected)
+                      const Icon(
+                        Icons.check_circle,
+                        color: Color(0xFF4F46E5),
+                        size: 18,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.event_seat_outlined,
+                      size: 15,
+                      color: available
+                          ? const Color(0xFF059669)
+                          : const Color(0xFFB45309),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      table.capacity > 0 ? '${table.capacity} seats' : 'Table',
+                      style: const TextStyle(
+                        color: Color(0xFF475569),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (status.isNotEmpty)
+                      Text(
+                        status,
+                        style: TextStyle(
+                          color: available
+                              ? const Color(0xFF059669)
+                              : const Color(0xFFB45309),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ItemOptionsDialog extends StatefulWidget {
   const _ItemOptionsDialog({required this.item, required this.money});
 
@@ -8334,6 +8659,7 @@ class _HeldTicket {
     this.customerPhone,
     this.customerAddress,
     this.orderNotes,
+    this.table,
     this.discount,
   });
 
@@ -8345,6 +8671,7 @@ class _HeldTicket {
   final String? customerPhone;
   final String? customerAddress;
   final String? orderNotes;
+  final _PosTable? table;
   final _Discount? discount;
 
   int get itemCount => lines.fold(0, (sum, line) => sum + line.quantity);
@@ -8369,6 +8696,108 @@ class _Discount {
       if (reason.isNotEmpty) 'reason': reason,
     };
   }
+}
+
+class _PosTable {
+  const _PosTable({
+    required this.id,
+    required this.name,
+    required this.status,
+    required this.capacity,
+    required this.sortOrder,
+    this.areaId,
+  });
+
+  final Object id;
+  final String name;
+  final String status;
+  final int capacity;
+  final int sortOrder;
+  final int? areaId;
+
+  factory _PosTable.fromJson(Map<String, dynamic> json) {
+    final name = _firstText(json, const ['name', 'label']);
+    return _PosTable(
+      id: json['id'] ?? json['uuid'] ?? json['name'] ?? '',
+      name: name.isEmpty ? 'Table' : name,
+      status: _firstText(json, const ['status', 'state']),
+      capacity: _summaryInt(json, const ['capacity', 'seats']),
+      sortOrder: _summaryInt(json, const ['sort_order', 'sortOrder']),
+      areaId: _nullableInt(json['table_area_id'] ?? json['tableAreaId']),
+    );
+  }
+}
+
+class _TableAreaGroup {
+  const _TableAreaGroup({required this.name, required this.tables});
+
+  final String name;
+  final List<_PosTable> tables;
+}
+
+List<_TableAreaGroup> _tableGroupsFromApi(Map<String, dynamic> source) {
+  final areaMaps = _asMapList(source['table_areas'] ?? source['areas']);
+  final tableMaps = <Map<String, dynamic>>[
+    ..._asMapList(source['tables']),
+    ..._asMapList(source['tables_without_area']),
+  ];
+  final tablesById = <String, _PosTable>{};
+  for (final raw in tableMaps) {
+    final table = _PosTable.fromJson(raw);
+    final id = table.id.toString();
+    if (id.isNotEmpty) {
+      tablesById[id] = table;
+    }
+  }
+  final tables = tablesById.values.toList();
+  final groups = <_TableAreaGroup>[];
+  final assignedIds = <String>{};
+
+  areaMaps.sort((a, b) {
+    final sort = _summaryInt(a, const [
+      'sort_order',
+      'sortOrder',
+    ]).compareTo(_summaryInt(b, const ['sort_order', 'sortOrder']));
+    if (sort != 0) {
+      return sort;
+    }
+    return _firstText(a, const [
+      'name',
+    ]).compareTo(_firstText(b, const ['name']));
+  });
+
+  for (final area in areaMaps) {
+    final areaId = _nullableInt(area['id']);
+    final areaName = _firstText(area, const ['name', 'label']);
+    final name = areaName.isEmpty ? 'Area' : areaName;
+    final areaTables =
+        tables
+            .where((table) => areaId != null && table.areaId == areaId)
+            .toList()
+          ..sort(_comparePosTables);
+    assignedIds.addAll(areaTables.map((table) => table.id.toString()));
+    groups.add(_TableAreaGroup(name: name, tables: areaTables));
+  }
+
+  final noArea = tables.where((table) {
+    final id = table.id.toString();
+    return !assignedIds.contains(id) &&
+        (table.areaId == null ||
+            table.areaId == 0 ||
+            !areaMaps.any((area) => _nullableInt(area['id']) == table.areaId));
+  }).toList()..sort(_comparePosTables);
+  if (noArea.isNotEmpty || groups.isEmpty) {
+    groups.add(_TableAreaGroup(name: 'Tables', tables: noArea));
+  }
+  return groups;
+}
+
+int _comparePosTables(_PosTable a, _PosTable b) {
+  final sort = a.sortOrder.compareTo(b.sortOrder);
+  if (sort != 0) {
+    return sort;
+  }
+  return a.name.toLowerCase().compareTo(b.name.toLowerCase());
 }
 
 Map<String, dynamic>? _extractShift(Map<String, dynamic> source) {
@@ -8561,6 +8990,16 @@ int _intValue(Object? value, {int fallback = 0}) {
     return value.toInt();
   }
   return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+int? _nullableInt(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '');
 }
 
 double _doubleValue(Object? value, {double fallback = 0}) {
