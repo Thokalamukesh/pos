@@ -1051,6 +1051,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         error: error,
         payment: payment,
         request: request,
+        printerConfig: printerConfig,
       );
       if (queued) {
         return;
@@ -1073,6 +1074,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     required Object error,
     required _PaymentSelection payment,
     required CreatePosOrderRequest request,
+    required PrinterConfig printerConfig,
   }) async {
     if (payment.method == 'upi' || error is! AppException || !error.isNetwork) {
       return false;
@@ -1085,15 +1087,39 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
             paymentMethod: payment.method,
             total: _payable,
           );
+      Object? printError;
+      int? printedBytes;
+      try {
+        final receipt = _offlineReceiptForQueuedOrder(
+          queued: queued,
+          payment: payment,
+        );
+        printedBytes = await ref
+            .read(printerRepositoryProvider)
+            .printReceipt(
+              receipt,
+              currencyCode: _currencyCode,
+              config: printerConfig,
+            );
+      } on Object catch (error) {
+        printError = error;
+      }
       unawaited(ref.read(offlineOrderSyncServiceProvider).syncNow());
       if (!mounted) {
         return true;
       }
       setState(_clearOrderState);
       _queueDisplaySync(clear: true);
+      final printedSuffix = printedBytes == null ? '' : ' Receipt printed.';
       _showNotice(
-        'Offline order saved (${queued.localId}). It will sync when internet returns.',
+        'Offline order saved (${queued.localId}). It will sync when internet returns.$printedSuffix',
       );
+      if (printError != null) {
+        _showSnack(
+          'Offline saved, but LAN print failed: ${_errorMessage(printError)}',
+          isError: true,
+        );
+      }
       return true;
     } on Object catch (queueError) {
       if (mounted) {
@@ -1103,6 +1129,119 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         );
       }
       return true;
+    }
+  }
+
+  ReceiptPrintObject _offlineReceiptForQueuedOrder({
+    required OfflineQueuedOrder queued,
+    required _PaymentSelection payment,
+  }) {
+    final now = DateTime.now();
+    final restaurantName = widget.data.restaurant?.name.trim();
+    final branchName = widget.data.branch?.name.trim();
+    final commands = <Map<String, dynamic>>[
+      {'type': 'init'},
+      {
+        'type': 'text',
+        'text': restaurantName == null || restaurantName.isEmpty
+            ? 'SELFX POS'
+            : restaurantName,
+        'align': 'center',
+        'style': 'bold',
+      },
+      if (branchName != null && branchName.isNotEmpty)
+        {'type': 'text', 'text': branchName, 'align': 'center'},
+      {
+        'type': 'text',
+        'text': 'OFFLINE RECEIPT',
+        'align': 'center',
+        'style': 'bold',
+      },
+      {'type': 'divider'},
+      {'type': 'row', 'left': 'Order', 'right': queued.localId},
+      {
+        'type': 'row',
+        'left': 'Date',
+        'right': DateFormat('dd MMM yyyy hh:mm a').format(now),
+      },
+      {'type': 'row', 'left': 'Type', 'right': _orderTypeLabel(_orderType)},
+      {'type': 'row', 'left': 'Payment', 'right': _paymentMethodLabel(payment)},
+      if ((_customerName ?? '').trim().isNotEmpty)
+        {'type': 'row', 'left': 'Customer', 'right': _customerName!.trim()},
+      {'type': 'divider'},
+      for (final line in _cart) ...[
+        {
+          'type': 'row',
+          'left': '${line.quantity} x ${_receiptLineName(line)}',
+          'right': _money.format(line.total),
+        },
+        if (line.optionTags.isNotEmpty)
+          {'type': 'text', 'text': line.optionTags.join(', '), 'align': 'left'},
+        if ((line.note ?? '').trim().isNotEmpty)
+          {'type': 'text', 'text': 'Note: ${line.note!.trim()}'},
+      ],
+      {'type': 'divider'},
+      {'type': 'row', 'left': 'Subtotal', 'right': _money.format(_subtotal)},
+      if (_discountAmount > 0)
+        {
+          'type': 'row',
+          'left': 'Discount',
+          'right': '-${_money.format(_discountAmount)}',
+        },
+      {'type': 'row', 'left': 'TOTAL', 'right': _money.format(_payable)},
+      if (payment.method == 'cash') ...[
+        {
+          'type': 'row',
+          'left': 'Paid',
+          'right': _money.format(payment.cashTendered),
+        },
+        {
+          'type': 'row',
+          'left': 'Change',
+          'right': _money.format(
+            (payment.cashTendered - _payable).clamp(0, double.infinity),
+          ),
+        },
+      ],
+      {'type': 'feed', 'lines': 1},
+      {'type': 'cut'},
+    ];
+
+    return ReceiptPrintObject.fromResponse({
+      'order': {
+        'id': queued.localId,
+        'order_number': queued.localId,
+        'type': _orderType,
+        'payment_method': payment.method,
+        'subtotal': _moneyValue(_subtotal),
+        'discount_total': _moneyValue(_discountAmount),
+        'total': _moneyValue(_payable),
+        'items': _cart.map((line) => line.toDisplayJson()).toList(),
+      },
+      'print_object': {'paper': '58mm', 'print_object': commands},
+    });
+  }
+
+  String _receiptLineName(_CartLine line) {
+    final variantName = line.variant?.name.trim();
+    if (variantName == null || variantName.isEmpty) {
+      return line.item.name;
+    }
+    return '${line.item.name} ($variantName)';
+  }
+
+  String _paymentMethodLabel(_PaymentSelection payment) {
+    switch (payment.method) {
+      case 'cash':
+        return 'Cash';
+      case 'card':
+        return 'Card';
+      case 'pay_later':
+        return 'Pay later';
+      case 'upi':
+        return 'UPI';
+      default:
+        return payment.method;
     }
   }
 
