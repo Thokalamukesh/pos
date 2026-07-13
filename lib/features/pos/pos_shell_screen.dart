@@ -983,8 +983,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
                 orderNumber: order.displayNumber,
                 title: 'RECEIPT',
                 payment: payment,
-                createdAt: DateTime.now(),
+                createdAt: _orderCreatedAt(order) ?? DateTime.now(),
                 orderId: orderId,
+                token: _orderToken(order),
+                qrData: _orderReceiptQr(order),
                 totalOverride: order.total,
               );
           printedBytes = await ref
@@ -1137,6 +1139,8 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     required _PaymentSelection payment,
     required DateTime createdAt,
     Object? orderId,
+    String? token,
+    String? qrData,
     double? totalOverride,
   }) {
     final restaurantName = widget.data.restaurant?.name.trim();
@@ -1155,6 +1159,13 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       if (branchName != null && branchName.isNotEmpty)
         {'type': 'text', 'text': branchName, 'align': 'center'},
       {'type': 'text', 'text': title, 'align': 'center', 'style': 'bold'},
+      if (token != null && token.trim().isNotEmpty)
+        {
+          'type': 'text',
+          'text': 'TOKEN #${token.trim()}',
+          'align': 'center',
+          'style': 'bold',
+        },
       {'type': 'divider'},
       {'type': 'row', 'left': 'Order', 'right': orderNumber},
       {
@@ -1202,12 +1213,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         },
       ],
       {'type': 'feed', 'lines': 1},
-      {
-        'type': 'text',
-        'text': 'Check your belongings before you leave',
-        'align': 'center',
-      },
-      {'type': 'text', 'text': 'SELFX POS', 'align': 'center'},
+      if (qrData != null && qrData.trim().isNotEmpty) ...[
+        {'type': 'qr', 'data': qrData.trim(), 'align': 'center'},
+        {'type': 'feed', 'lines': 1},
+      ],
       {'type': 'feed', 'lines': 1},
       {'type': 'cut'},
     ];
@@ -1216,6 +1225,9 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       'order': {
         'id': orderId ?? orderNumber,
         'order_number': orderNumber,
+        if (token != null && token.trim().isNotEmpty) 'token': token.trim(),
+        if (qrData != null && qrData.trim().isNotEmpty)
+          'tracking_url': qrData.trim(),
         'type': _orderType,
         'payment_method': payment.method,
         'subtotal': _moneyValue(_subtotal),
@@ -1225,6 +1237,32 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       },
       'print_object': {'paper': '58mm', 'print_object': commands},
     });
+  }
+
+  String? _orderToken(PosOrderResult order) {
+    return _nullableString(order.order['token'] ?? order.raw['token']);
+  }
+
+  String? _orderReceiptQr(PosOrderResult order) {
+    return _nullableString(
+      order.order['tracking_url'] ??
+          order.order['receipt_url'] ??
+          order.raw['tracking_url'] ??
+          order.raw['receipt_url'],
+    );
+  }
+
+  DateTime? _orderCreatedAt(PosOrderResult order) {
+    final value = _nullableString(
+      order.order['created_at'] ??
+          order.order['createdAt'] ??
+          order.raw['created_at'] ??
+          order.raw['createdAt'],
+    );
+    if (value == null) {
+      return null;
+    }
+    return DateTime.tryParse(value)?.toLocal();
   }
 
   String _receiptLineName(_CartLine line) {

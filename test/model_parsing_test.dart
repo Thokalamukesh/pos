@@ -410,6 +410,39 @@ void main() {
     },
   );
 
+  test(
+    'receipt printer keeps production footer once when commands include it',
+    () async {
+      final receipt = ReceiptPrintObject.fromResponse({
+        'order': {'id': 88},
+        'print_object': {
+          'paper': '56mm',
+          'print_object': [
+            {'type': 'init'},
+            {'type': 'text', 'text': 'Fixture Restaurant', 'align': 'center'},
+            {'type': 'row', 'left': 'Total', 'right': 'Rs 120.00'},
+            {
+              'type': 'text',
+              'text': 'Check your belongings before you leave',
+              'align': 'center',
+            },
+            {'type': 'text', 'text': 'SELFX POS', 'align': 'center'},
+            {'type': 'cut'},
+          ],
+        },
+      });
+
+      final bytes = await ReceiptPrinterService().buildEscPos(receipt);
+      final text = String.fromCharCodes(bytes);
+
+      expect(
+        RegExp('Check your belongings before').allMatches(text),
+        hasLength(1),
+      );
+      expect(RegExp('SELFX POS').allMatches(text), hasLength(1));
+    },
+  );
+
   test('printer config persists LAN receipt settings', () {
     final config = PrinterConfig.fromJson({
       'name': 'Counter receipt',

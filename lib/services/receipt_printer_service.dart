@@ -256,7 +256,7 @@ class ReceiptPrinterService {
     for (final original in commands) {
       final command = Map<String, dynamic>.from(original);
       final type = _commandType(command);
-      if (_isOldFooterCommand(command)) {
+      if (_isFooterCommand(command)) {
         continue;
       }
       if (type == 'logo' || type == 'image') {
@@ -282,20 +282,27 @@ class ReceiptPrinterService {
     return const <String, dynamic>{'type': '_selfx_footer'};
   }
 
-  bool _isOldFooterCommand(Map<String, dynamic> command) {
+  bool _isFooterCommand(Map<String, dynamic> command) {
     final type = _commandType(command);
     if (type != 'text' && type != 'line') {
       return false;
     }
-    return _isThankYouFooter(
-      _stringValue(command['text'] ?? command['value'] ?? command['content']),
+    final text = _stringValue(
+      command['text'] ?? command['value'] ?? command['content'],
     );
+    return _isThankYouFooter(text) || _isProductionFooter(text);
   }
 
   bool _isThankYouFooter(String value) {
     final normalized = value.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
     return normalized.contains('thankyouforyourorder') ||
         normalized.contains('thanksforyourorder');
+  }
+
+  bool _isProductionFooter(String value) {
+    final normalized = value.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
+    return normalized == 'checkyourbelongingsbeforeyouleave' ||
+        normalized == 'selfxpos';
   }
 
   List<int> _renderCommand(
