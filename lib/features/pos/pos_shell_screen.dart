@@ -1019,6 +1019,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
                 createdAt: _orderCreatedAt(order) ?? DateTime.now(),
                 orderId: orderId,
                 token: _orderToken(order),
+                tableName: _orderTableName(order) ?? _selectedTable?.name,
                 qrData: _orderReceiptQr(order),
                 totalOverride: order.total,
               );
@@ -1173,19 +1174,25 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     required DateTime createdAt,
     Object? orderId,
     String? token,
+    String? tableName,
     String? qrData,
     double? totalOverride,
   }) {
     final restaurantName = widget.data.restaurant?.name.trim();
     final branchName = widget.data.branch?.name.trim();
+    final branchAddress = widget.data.branch?.address?.trim();
+    final taxId = widget.data.restaurant?.taxId?.trim();
     final total = totalOverride ?? _payable;
     final commands = <Map<String, dynamic>>[
       ..._receiptCopyCommands(
         restaurantName: restaurantName,
         branchName: branchName,
+        branchAddress: branchAddress,
+        taxId: taxId,
         title: title,
         orderNumber: orderNumber,
         token: token,
+        tableName: tableName,
         payment: payment,
         createdAt: createdAt,
         total: total,
@@ -1195,9 +1202,12 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       ..._receiptCopyCommands(
         restaurantName: restaurantName,
         branchName: branchName,
+        branchAddress: branchAddress,
+        taxId: taxId,
         title: 'COUNTER COPY',
         orderNumber: orderNumber,
         token: token,
+        tableName: tableName,
         payment: payment,
         createdAt: createdAt,
         total: total,
@@ -1211,6 +1221,8 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         'id': orderId ?? orderNumber,
         'order_number': orderNumber,
         if (token != null && token.trim().isNotEmpty) 'token': token.trim(),
+        if (tableName != null && tableName.trim().isNotEmpty)
+          'table_name': tableName.trim(),
         if (qrData != null && qrData.trim().isNotEmpty)
           'tracking_url': qrData.trim(),
         'type': _orderType,
@@ -1227,15 +1239,21 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   List<Map<String, dynamic>> _receiptCopyCommands({
     required String? restaurantName,
     required String? branchName,
+    required String? branchAddress,
+    required String? taxId,
     required String title,
     required String orderNumber,
     required String? token,
+    required String? tableName,
     required _PaymentSelection payment,
     required DateTime createdAt,
     required double total,
     String? qrData,
   }) {
     final tokenText = token?.trim();
+    final note = _orderNotes?.trim();
+    final customer = (_customerName ?? 'Guest').trim();
+    final table = tableName?.trim();
     return <Map<String, dynamic>>[
       {'type': 'init'},
       {
@@ -1244,11 +1262,17 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
             ? 'SELFX POS'
             : restaurantName,
         'align': 'center',
-        'style': 'bold',
+        'style': 'bold_large',
       },
       if (branchName != null && branchName.isNotEmpty)
         {'type': 'text', 'text': branchName, 'align': 'center'},
-      {'type': 'text', 'text': title, 'align': 'center', 'style': 'bold'},
+      if (branchAddress != null && branchAddress.isNotEmpty)
+        {'type': 'text', 'text': branchAddress, 'align': 'center'},
+      if (taxId != null && taxId.isNotEmpty)
+        {'type': 'text', 'text': 'GSTIN: $taxId', 'align': 'center'},
+      if (title.trim().isNotEmpty && title != 'RECEIPT')
+        {'type': 'text', 'text': title, 'align': 'center', 'style': 'bold'},
+      {'type': 'feed', 'lines': 1},
       if (tokenText != null && tokenText.isNotEmpty)
         {
           'type': 'text',
@@ -1256,26 +1280,43 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
           'align': 'center',
           'style': 'bold_large',
         },
-      {'type': 'divider'},
-      {'type': 'row', 'left': 'Order', 'right': orderNumber},
       {
-        'type': 'row',
-        'left': 'Date',
-        'right': DateFormat('dd MMM yyyy hh:mm a').format(createdAt),
+        'type': 'text',
+        'text': 'Order:$orderNumber',
+        'align': 'center',
+        'style': 'bold',
       },
-      {'type': 'row', 'left': 'Type', 'right': _orderTypeLabel(_orderType)},
-      {'type': 'row', 'left': 'Payment', 'right': _paymentMethodLabel(payment)},
-      if ((_customerName ?? '').trim().isNotEmpty)
-        {'type': 'row', 'left': 'Customer', 'right': _customerName!.trim()},
+      {'type': 'feed', 'lines': 1},
+      {
+        'type': 'text',
+        'text':
+            '${_orderTypeLabel(_orderType)} - ${DateFormat('dd MMM yyyy hh:mm a').format(createdAt)}',
+        'align': 'center',
+      },
+      if (table != null && table.isNotEmpty)
+        {'type': 'text', 'text': 'Table:$table'},
+      if (customer.isNotEmpty) {'type': 'text', 'text': 'Customer:$customer'},
+      if (note != null && note.isNotEmpty)
+        {'type': 'text', 'text': 'Note:$note'},
       {'type': 'divider'},
       for (final line in _cart) ...[
         {
           'type': 'row',
-          'left': '${line.quantity} x ${_receiptLineName(line)}',
+          'left': '${line.quantity}x ${_receiptLineName(line)}',
           'right': _money.format(line.total),
+          'style': 'bold',
         },
-        if (line.optionTags.isNotEmpty)
-          {'type': 'text', 'text': line.optionTags.join(', '), 'align': 'left'},
+        if (line.variant != null)
+          {'type': 'text', 'text': '(${line.variant!.name})'},
+        {'type': 'text', 'text': '@ ${_money.format(line.unitPrice)} each'},
+        for (final modifier in line.modifiers)
+          {
+            'type': 'row',
+            'left': '+ ${modifier.optionName}',
+            'right': modifier.priceAdjustment == 0
+                ? ''
+                : _money.format(modifier.priceAdjustment),
+          },
         if ((line.note ?? '').trim().isNotEmpty)
           {'type': 'text', 'text': 'Note: ${line.note!.trim()}'},
       ],
@@ -1287,7 +1328,19 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
           'left': 'Discount',
           'right': '-${_money.format(_discountAmount)}',
         },
-      {'type': 'row', 'left': 'TOTAL', 'right': _money.format(total)},
+      {'type': 'divider'},
+      {
+        'type': 'row',
+        'left': 'TOTAL',
+        'right': _money.format(total),
+        'style': 'bold_large',
+      },
+      {'type': 'text', 'text': 'Paid', 'align': 'center', 'style': 'bold'},
+      {
+        'type': 'text',
+        'text': 'Method: ${_paymentMethodLabel(payment)}',
+        'align': 'center',
+      },
       if (payment.method == 'cash') ...[
         {
           'type': 'row',
@@ -1320,6 +1373,15 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
           order.order['receipt_url'] ??
           order.raw['tracking_url'] ??
           order.raw['receipt_url'],
+    );
+  }
+
+  String? _orderTableName(PosOrderResult order) {
+    return _nullableString(
+      order.order['table_name'] ??
+          order.order['tableName'] ??
+          order.raw['table_name'] ??
+          order.raw['tableName'],
     );
   }
 

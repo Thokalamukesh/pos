@@ -12,7 +12,8 @@ final receiptPrinterServiceProvider = Provider<ReceiptPrinterService>((ref) {
 });
 
 class ReceiptPrinterService {
-  static const _receiptReminder = 'Check your belongings before you leave';
+  static const _receiptReminder = 'THANK YOU FOR YOUR ORDER!';
+  static const _poweredBy = 'Powered By';
   static const _footerBrand = 'SELFX POS';
   static Future<CapabilityProfile>? _profileFuture;
 
@@ -239,9 +240,23 @@ class ReceiptPrinterService {
     bytes.addAll(
       _renderTextLines(
         generator,
-        const [_footerBrand],
+        const [_poweredBy],
         lineChars: lineChars,
         styles: const PosStyles(align: PosAlign.center, bold: true),
+        currencyCode: currencyCode,
+      ),
+    );
+    bytes.addAll(
+      _renderTextLines(
+        generator,
+        const [_footerBrand],
+        lineChars: lineChars,
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          width: PosTextSize.size2,
+          height: PosTextSize.size2,
+        ),
         currencyCode: currencyCode,
       ),
     );
@@ -302,6 +317,8 @@ class ReceiptPrinterService {
   bool _isProductionFooter(String value) {
     final normalized = value.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
     return normalized == 'checkyourbelongingsbeforeyouleave' ||
+        normalized == 'thankyouforyourorder' ||
+        normalized == 'poweredby' ||
         normalized == 'selfxpos';
   }
 

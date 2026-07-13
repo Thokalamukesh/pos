@@ -371,12 +371,12 @@ void main() {
       final bytes = await ReceiptPrinterService().buildEscPos(receipt);
       final text = String.fromCharCodes(bytes);
 
-      expect(text, contains('Check your belongings before'));
-      expect(text, contains('you leave'));
+      expect(text, contains('THANK YOU FOR YOUR ORDER'));
+      expect(text, contains('Powered By'));
       expect(text, contains('SELFX POS'));
-      expect(text, isNot(contains('Thank you for your order')));
+      expect(RegExp('THANK YOU FOR YOUR ORDER').allMatches(text), hasLength(1));
       expect(
-        text.indexOf('Check your belongings before'),
+        text.indexOf('THANK YOU FOR YOUR ORDER'),
         lessThan(text.indexOf('SELFX POS')),
       );
     },
@@ -401,11 +401,12 @@ void main() {
       final bytes = await ReceiptPrinterService().buildEscPos(receipt);
       final text = String.fromCharCodes(bytes);
 
-      expect(text, contains('Check your belongings before'));
+      expect(text, contains('THANK YOU FOR YOUR ORDER'));
+      expect(text, contains('Powered By'));
       expect(text, contains('SELFX POS'));
       expect(
         text.indexOf('Rs 120.00'),
-        lessThan(text.indexOf('Check your belongings before')),
+        lessThan(text.indexOf('THANK YOU FOR YOUR ORDER')),
       );
     },
   );
@@ -423,9 +424,10 @@ void main() {
             {'type': 'row', 'left': 'Total', 'right': 'Rs 120.00'},
             {
               'type': 'text',
-              'text': 'Check your belongings before you leave',
+              'text': 'THANK YOU FOR YOUR ORDER!',
               'align': 'center',
             },
+            {'type': 'text', 'text': 'Powered By', 'align': 'center'},
             {'type': 'text', 'text': 'SELFX POS', 'align': 'center'},
             {'type': 'cut'},
           ],
@@ -435,10 +437,8 @@ void main() {
       final bytes = await ReceiptPrinterService().buildEscPos(receipt);
       final text = String.fromCharCodes(bytes);
 
-      expect(
-        RegExp('Check your belongings before').allMatches(text),
-        hasLength(1),
-      );
+      expect(RegExp('THANK YOU FOR YOUR ORDER').allMatches(text), hasLength(1));
+      expect(RegExp('Powered By').allMatches(text), hasLength(1));
       expect(RegExp('SELFX POS').allMatches(text), hasLength(1));
     },
   );
