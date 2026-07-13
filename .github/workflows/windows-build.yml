@@ -6,6 +6,11 @@ on:
     branches:
       - main
       - master
+    tags:
+      - 'windows-*'
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
@@ -54,3 +59,10 @@ jobs:
           name: selfx-pos-windows-release
           path: build/selfx_pos_windows_release.zip
           retention-days: 14
+
+      - name: Publish tagged Windows release
+        if: startsWith(github.ref, 'refs/tags/windows-')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: SELFX POS Windows ${{ github.ref_name }}
+          files: build/selfx_pos_windows_release.zip
