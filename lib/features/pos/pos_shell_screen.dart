@@ -1180,8 +1180,20 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   }) {
     final restaurantName = widget.data.restaurant?.name.trim();
     final branchName = widget.data.branch?.name.trim();
-    final branchAddress = widget.data.branch?.address?.trim();
-    final taxId = widget.data.restaurant?.taxId?.trim();
+    final branchAddress =
+        widget.data.branch?.address?.trim() ??
+        _receiptSettingText(const [
+          'address',
+          'receipt_address',
+          'receiptAddress',
+          'branch_address',
+          'branchAddress',
+          'store_address',
+          'storeAddress',
+        ]);
+    final taxId =
+        widget.data.restaurant?.taxId?.trim() ??
+        _receiptSettingText(const ['gstin', 'gst', 'tax_id', 'taxId']);
     final total = totalOverride ?? _payable;
     final commands = <Map<String, dynamic>>[
       ..._receiptCopyCommands(
@@ -1396,6 +1408,21 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       return null;
     }
     return DateTime.tryParse(value)?.toLocal();
+  }
+
+  String? _receiptSettingText(List<String> keys) {
+    final settings = widget.data.receiptSettings;
+    for (final key in keys) {
+      final value = settings[key];
+      if (value is Map || value is List) {
+        continue;
+      }
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) {
+        return text;
+      }
+    }
+    return null;
   }
 
   String _receiptLineName(_CartLine line) {

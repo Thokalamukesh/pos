@@ -1,5 +1,7 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image/image.dart' as image;
@@ -56,7 +58,7 @@ class ReceiptPrinterService {
     }
     for (final command in commands) {
       bytes.addAll(
-        _renderCommand(
+        await _renderCommand(
           generator,
           command,
           lineChars,
@@ -274,9 +276,6 @@ class ReceiptPrinterService {
       if (_isFooterCommand(command)) {
         continue;
       }
-      if (type == 'logo' || type == 'image') {
-        continue;
-      }
       if (type == 'cut') {
         if (!footerInjected) {
           normalized.add(_footerCommand());
@@ -322,7 +321,7 @@ class ReceiptPrinterService {
         normalized == 'selfxpos';
   }
 
-  List<int> _renderCommand(
+  Future<List<int>> _renderCommand(
     Generator generator,
     Map<String, dynamic> command,
     int lineChars, {
@@ -331,99 +330,148 @@ class ReceiptPrinterService {
     final type = _commandType(command);
     switch (type) {
       case '_selfx_footer':
-        return _renderReceiptFooter(
-          generator,
-          lineChars,
-          currencyCode: currencyCode,
+        return Future.value(
+          _renderReceiptFooter(
+            generator,
+            lineChars,
+            currencyCode: currencyCode,
+          ),
         );
       case 'init':
-        return generator.reset();
+        return Future.value(generator.reset());
       case 'divider':
       case 'separator':
-        return generator.hr(ch: _dividerChar(command));
+        return Future.value(generator.hr(ch: _dividerChar(command)));
       case 'line':
         final text = _stringValue(
           command['text'] ?? command['value'] ?? command['content'],
         );
         if (text.isEmpty) {
-          return generator.hr(ch: _dividerChar(command));
+          return Future.value(generator.hr(ch: _dividerChar(command)));
         }
-        return _renderTextLines(
-          generator,
-          _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
-          lineChars: lineChars,
-          styles: _styles(command),
-          currencyCode: currencyCode,
+        return Future.value(
+          _renderTextLines(
+            generator,
+            _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
+            lineChars: lineChars,
+            styles: _styles(command),
+            currencyCode: currencyCode,
+          ),
         );
       case 'row':
-        return _renderRow(
-          generator,
-          command,
-          lineChars,
-          currencyCode: currencyCode,
+        return Future.value(
+          _renderRow(generator, command, lineChars, currencyCode: currencyCode),
         );
       case 'qr':
       case 'qrcode':
         final data = _stringValue(
           command['data'] ?? command['text'] ?? command['value'],
         );
-        return data.isEmpty
-            ? const <int>[]
-            : _renderCenteredQrImage(
-                generator,
-                data,
-                lineChars,
-                size: command['size'] ?? command['qr_size'],
-                correction:
-                    command['correction'] ?? command['error_correction'],
-              );
+        return Future.value(
+          data.isEmpty
+              ? const <int>[]
+              : _renderCenteredQrImage(
+                  generator,
+                  data,
+                  lineChars,
+                  size: command['size'] ?? command['qr_size'],
+                  correction:
+                      command['correction'] ?? command['error_correction'],
+                ),
+        );
       case 'barcode':
         final data = _stringValue(
           command['data'] ?? command['text'] ?? command['value'],
         );
         if (data.isEmpty) {
-          return const <int>[];
+          return Future.value(const <int>[]);
         }
-        return generator.text(
-          _centerAlign(
-            _printerText(data, currencyCode: currencyCode),
-            lineChars,
+        return Future.value(
+          generator.text(
+            _centerAlign(
+              _printerText(data, currencyCode: currencyCode),
+              lineChars,
+            ),
+            styles: const PosStyles(align: PosAlign.left),
           ),
-          styles: const PosStyles(align: PosAlign.left),
         );
       case 'feed':
       case 'space':
       case 'blank':
-        return generator.feed(_intValue(command['lines'] ?? command['n']) ?? 1);
+        return Future.value(
+          generator.feed(_intValue(command['lines'] ?? command['n']) ?? 1),
+        );
       case 'drawer':
       case 'open_drawer':
-        return generator.drawer();
+        return Future.value(generator.drawer());
       case 'cut':
-        return generator.cut();
+        return Future.value(generator.cut());
       case 'logo':
       case 'image':
-        return _renderTextLines(
-          generator,
-          const [_footerBrand],
-          lineChars: lineChars,
-          styles: const PosStyles(align: PosAlign.center, bold: true),
-          currencyCode: currencyCode,
-        );
+        return _renderLogoCommand(generator, command, lineChars);
       case 'text':
       default:
         final text = _stringValue(
           command['text'] ?? command['value'] ?? command['content'],
         );
         if (text.isEmpty) {
-          return const <int>[];
+          return Future.value(const <int>[]);
         }
-        return _renderTextLines(
-          generator,
-          _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
-          lineChars: lineChars,
-          styles: _styles(command),
-          currencyCode: currencyCode,
+        return Future.value(
+          _renderTextLines(
+            generator,
+            _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
+            lineChars: lineChars,
+            styles: _styles(command),
+            currencyCode: currencyCode,
+          ),
         );
+    }
+  }
+
+  Future<List<int>> _renderLogoCommand(
+    Generator generator,
+    Map<String, dynamic> command,
+    int lineChars,
+  ) async {
+    final url = _stringValue(command['url'] ?? command['src']);
+    if (url.isEmpty) {
+      return const <int>[];
+    }
+    try {
+      final response = await Dio().get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) {
+        return const <int>[];
+      }
+      final decoded = image.decodeImage(Uint8List.fromList(bytes));
+      if (decoded == null) {
+        return const <int>[];
+      }
+      final maxWidth = _logoMaxWidth(lineChars, command['max_width_dots']);
+      final resized = image.copyResize(
+        decoded,
+        width: math.min(maxWidth, decoded.width),
+        interpolation: image.Interpolation.average,
+      );
+      final canvasWidth = _printableDotWidth(lineChars);
+      final canvas = image.Image(
+        width: canvasWidth,
+        height: resized.height + 8,
+      );
+      image.fill(canvas, color: image.ColorRgb8(255, 255, 255));
+      image.compositeImage(
+        canvas,
+        resized,
+        dstX: math.max(0, (canvasWidth - resized.width) ~/ 2),
+        dstY: 4,
+      );
+      return generator.imageRaster(canvas, align: PosAlign.left);
+    } catch (_) {
+      return const <int>[];
     }
   }
 
@@ -863,6 +911,16 @@ int _printableDotWidth(int lineChars) {
     return 512;
   }
   return 576;
+}
+
+int _logoMaxWidth(int lineChars, Object? value) {
+  final text = _stringValue(value).toLowerCase();
+  final numeric = int.tryParse(text.replaceAll(RegExp(r'[^0-9]'), ''));
+  final paperMax = _printableDotWidth(lineChars) - 24;
+  if (numeric != null && numeric > 0) {
+    return numeric.clamp(80, paperMax);
+  }
+  return lineChars <= 32 ? 180 : 240;
 }
 
 int _qrImageSize(int lineChars, Object? value) {
