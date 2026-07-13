@@ -352,33 +352,37 @@ void main() {
   });
 
   test(
-    'receipt printer replaces footer reminder and prints small brand mark',
+    'receipt printer preserves server receipt footer and branding',
     () async {
       final receipt = ReceiptPrintObject.fromResponse({
         'order': {'id': 88},
         'print_object': {
-          'paper': '56mm',
+          'paper': '80mm',
           'print_object': [
             {'type': 'init'},
+            {'type': 'text', 'text': 'TOKEN #62', 'style': 'large_bold'},
             {'type': 'qr', 'data': 'https://app.selfx.in/order/88'},
             {'type': 'text', 'text': 'Thank you for your order!'},
             {'type': 'divider'},
-            {'type': 'cut'},
+            {'type': 'logo', 'max_width_dots': 230},
+            {'type': 'cut', 'mode': 'partial'},
+            {'type': 'text', 'text': 'TOKEN #62', 'style': 'large_bold'},
+            {'type': 'cut', 'mode': 'full'},
           ],
         },
       });
 
-      final bytes = await ReceiptPrinterService().buildEscPos(receipt);
+      final bytes = await ReceiptPrinterService().buildEscPos(
+        receipt,
+        paperWidth: '56mm',
+      );
       final text = String.fromCharCodes(bytes);
 
-      expect(text, contains('THANK YOU FOR YOUR ORDER'));
-      expect(text, contains('Powered By'));
-      expect(text, contains('SELFX POS'));
-      expect(RegExp('THANK YOU FOR YOUR ORDER').allMatches(text), hasLength(1));
-      expect(
-        text.indexOf('THANK YOU FOR YOUR ORDER'),
-        lessThan(text.indexOf('SELFX POS')),
-      );
+      expect(text, contains('Thank you for your order!'));
+      expect(text, contains('TOKEN #62'));
+      expect(RegExp('TOKEN #62').allMatches(text), hasLength(2));
+      expect(text, isNot(contains('Powered By')));
+      expect(text, isNot(contains('SELFX POS')));
     },
   );
 

@@ -25,7 +25,7 @@ class ReceiptPrinterService {
     String? paperWidth,
   }) async {
     final profile = await _profile();
-    final selectedPaper = paperWidth ?? receipt.paper;
+    final selectedPaper = receipt.paper ?? paperWidth;
     final paperSize = _paperSize(selectedPaper);
     final lineChars = _paperLineChars(selectedPaper, paperSize);
     final generator = Generator(paperSize, profile);
@@ -269,6 +269,12 @@ class ReceiptPrinterService {
     List<Map<String, dynamic>> commands,
   ) {
     final normalized = <Map<String, dynamic>>[];
+    if (_hasServerReceiptFooter(commands)) {
+      return commands
+          .map((command) => Map<String, dynamic>.from(command))
+          .toList();
+    }
+
     var footerInjected = false;
     for (final original in commands) {
       final command = Map<String, dynamic>.from(original);
@@ -290,6 +296,22 @@ class ReceiptPrinterService {
       normalized.add(_footerCommand());
     }
     return normalized;
+  }
+
+  bool _hasServerReceiptFooter(List<Map<String, dynamic>> commands) {
+    return commands.any((command) {
+      if (_isFooterCommand(command)) {
+        return true;
+      }
+      final type = _commandType(command);
+      if (type != 'logo' && type != 'image') {
+        return false;
+      }
+      final url = _stringValue(command['url'] ?? command['src']).toLowerCase();
+      return url.contains('admin-branding') ||
+          url.contains('receipt-logo') ||
+          url.contains('powered');
+    });
   }
 
   Map<String, dynamic> _footerCommand() {
@@ -405,7 +427,7 @@ class ReceiptPrinterService {
       case 'open_drawer':
         return Future.value(generator.drawer());
       case 'cut':
-        return Future.value(generator.cut());
+        return Future.value(generator.cut(mode: _cutMode(command['mode'])));
       case 'logo':
       case 'image':
         return _renderLogoCommand(generator, command, lineChars);
@@ -883,6 +905,13 @@ QRCorrection _qrCorrection(Object? value) {
     default:
       return QRCorrection.L;
   }
+}
+
+PosCutMode _cutMode(Object? value) {
+  return switch (_stringValue(value).toLowerCase()) {
+    'partial' => PosCutMode.partial,
+    _ => PosCutMode.full,
+  };
 }
 
 int _qrPackageCorrection(Object? value) {
