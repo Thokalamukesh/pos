@@ -1010,19 +1010,16 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         printError = null;
       } else {
         try {
-          final receipt =
-              _receiptFromOrderResponse(order) ??
-              _receiptForCurrentCart(
-                orderNumber: order.displayNumber,
-                title: 'RECEIPT',
-                payment: payment,
-                createdAt: _orderCreatedAt(order) ?? DateTime.now(),
-                orderId: orderId,
-                token: _orderToken(order),
-                tableName: _orderTableName(order) ?? _selectedTable?.name,
-                qrData: _orderReceiptQr(order),
-                totalOverride: order.total,
-              );
+          final fallbackReceipt = _receiptForPlacedOrder(
+            order: order,
+            payment: payment,
+          );
+          final receipt = orderId == null
+              ? fallbackReceipt
+              : await _receiptFromBackendOrFallback(
+                  orderId: orderId,
+                  fallback: fallbackReceipt,
+                );
           printedBytes = await ref
               .read(printerRepositoryProvider)
               .printReceipt(
@@ -1165,6 +1162,44 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   ReceiptPrintObject? _receiptFromOrderResponse(PosOrderResult order) {
     final receipt = ReceiptPrintObject.fromResponse(order.raw);
     return receipt.hasCommands ? receipt : null;
+  }
+
+  ReceiptPrintObject _receiptForPlacedOrder({
+    required PosOrderResult order,
+    required _PaymentSelection payment,
+  }) {
+    return _receiptFromOrderResponse(order) ??
+        _receiptForCurrentCart(
+          orderNumber: order.displayNumber,
+          title: 'RECEIPT',
+          payment: payment,
+          createdAt: _orderCreatedAt(order) ?? DateTime.now(),
+          orderId: order.id,
+          token: _orderToken(order),
+          tableName: _orderTableName(order) ?? _selectedTable?.name,
+          qrData: _orderReceiptQr(order),
+          totalOverride: order.total,
+        );
+  }
+
+  Future<ReceiptPrintObject> _receiptFromBackendOrFallback({
+    required int orderId,
+    required ReceiptPrintObject fallback,
+  }) async {
+    try {
+      final receipt = await ref
+          .read(posOrderRepositoryProvider)
+          .fetchReceipt(orderId);
+      if (receipt.hasCommands) {
+        return receipt;
+      }
+    } on Object catch (error) {
+      debugPrint(
+        '[RECEIPT][POS] backend receipt failed orderId=$orderId '
+        'error=${_errorMessage(error)}',
+      );
+    }
+    return fallback;
   }
 
   ReceiptPrintObject _receiptForCurrentCart({
