@@ -27,7 +27,6 @@ import '../auth/auth_controller.dart';
 import '../auth/login_screen.dart';
 import '../bootstrap/bootstrap_providers.dart';
 import '../customer_display/presentation/customer_display_page.dart';
-import '../display/kitchen_display_screen.dart';
 import '../terminal/terminal_controller.dart';
 import '../terminal/terminal_selection_screen.dart';
 
@@ -401,22 +400,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     await context.push(CustomerDisplayPage.routePath);
   }
 
-  Future<void> _openDisplayLauncher() async {
-    final action = await showDialog<_DisplayLaunchAction>(
-      context: context,
-      builder: (context) => const _DisplayLauncherDialog(),
-    );
-    if (!mounted || action == null) {
-      return;
-    }
-    switch (action) {
-      case _DisplayLaunchAction.kitchen:
-        context.push(KitchenDisplayScreen.routePath);
-      case _DisplayLaunchAction.customer:
-        await _openCustomerDisplay();
-    }
-  }
-
   void _queueDisplaySync({bool clear = false}) {
     _displaySyncDebounce?.cancel();
   }
@@ -508,7 +491,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     }
     setState(() => _shiftBusy = true);
     try {
-      await ref
+      final closeResult = await ref
           .read(shiftRepositoryProvider)
           .close(countedCash: request.countedCash, notes: request.notes);
       if (!mounted) {
@@ -516,14 +499,19 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       }
       setState(() => _currentShift = null);
       ref.invalidate(posBootstrapProvider);
-      final paidOrders = _summaryInt(summary, const [
+      final closedSummary = _extractSummaryMap(closeResult);
+      final noticeSummary = closedSummary.isEmpty ? summary : closedSummary;
+      final paidOrders = _summaryInt(noticeSummary, const [
         'paid_orders',
         'paid_orders_count',
         'orders_count',
         'count',
       ]);
-      final expectedCash = _closeShiftExpected(summary);
-      final variance = request.countedCash - expectedCash;
+      final expectedCash = _closeShiftExpected(noticeSummary);
+      final serverVariance = _summaryAmount(closeResult, const ['variance']);
+      final variance = serverVariance.abs() > 0.005
+          ? serverVariance
+          : request.countedCash - expectedCash;
       final varianceState = variance < -0.005 ? 'short' : 'over';
       final varianceText = variance.abs().toStringAsFixed(2);
       final orderText = paidOrders == 1
@@ -987,15 +975,18 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       final orderId = order.id;
       if (payment.method == 'upi' && !paymentConfirmed) {
         printError = null;
-      } else if (orderId == null) {
-        printError = const AppException(
-          message: 'Order saved but receipt id was not returned.',
-        );
       } else {
         try {
-          final receipt = await ref
-              .read(posOrderRepositoryProvider)
-              .fetchReceipt(orderId);
+          final receipt =
+              _receiptFromOrderResponse(order) ??
+              _receiptForCurrentCart(
+                orderNumber: order.displayNumber,
+                title: 'RECEIPT',
+                payment: payment,
+                createdAt: DateTime.now(),
+                orderId: orderId,
+                totalOverride: order.total,
+              );
           printedBytes = await ref
               .read(printerRepositoryProvider)
               .printReceipt(
@@ -1090,9 +1081,12 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       Object? printError;
       int? printedBytes;
       try {
-        final receipt = _offlineReceiptForQueuedOrder(
-          queued: queued,
+        final receipt = _receiptForCurrentCart(
+          orderNumber: queued.localId,
+          title: 'OFFLINE RECEIPT',
           payment: payment,
+          createdAt: queued.createdAt,
+          orderId: queued.localId,
         );
         printedBytes = await ref
             .read(printerRepositoryProvider)
@@ -1132,13 +1126,22 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     }
   }
 
-  ReceiptPrintObject _offlineReceiptForQueuedOrder({
-    required OfflineQueuedOrder queued,
+  ReceiptPrintObject? _receiptFromOrderResponse(PosOrderResult order) {
+    final receipt = ReceiptPrintObject.fromResponse(order.raw);
+    return receipt.hasCommands ? receipt : null;
+  }
+
+  ReceiptPrintObject _receiptForCurrentCart({
+    required String orderNumber,
+    required String title,
     required _PaymentSelection payment,
+    required DateTime createdAt,
+    Object? orderId,
+    double? totalOverride,
   }) {
-    final now = DateTime.now();
     final restaurantName = widget.data.restaurant?.name.trim();
     final branchName = widget.data.branch?.name.trim();
+    final total = totalOverride ?? _payable;
     final commands = <Map<String, dynamic>>[
       {'type': 'init'},
       {
@@ -1151,18 +1154,13 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       },
       if (branchName != null && branchName.isNotEmpty)
         {'type': 'text', 'text': branchName, 'align': 'center'},
-      {
-        'type': 'text',
-        'text': 'OFFLINE RECEIPT',
-        'align': 'center',
-        'style': 'bold',
-      },
+      {'type': 'text', 'text': title, 'align': 'center', 'style': 'bold'},
       {'type': 'divider'},
-      {'type': 'row', 'left': 'Order', 'right': queued.localId},
+      {'type': 'row', 'left': 'Order', 'right': orderNumber},
       {
         'type': 'row',
         'left': 'Date',
-        'right': DateFormat('dd MMM yyyy hh:mm a').format(now),
+        'right': DateFormat('dd MMM yyyy hh:mm a').format(createdAt),
       },
       {'type': 'row', 'left': 'Type', 'right': _orderTypeLabel(_orderType)},
       {'type': 'row', 'left': 'Payment', 'right': _paymentMethodLabel(payment)},
@@ -1188,7 +1186,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
           'left': 'Discount',
           'right': '-${_money.format(_discountAmount)}',
         },
-      {'type': 'row', 'left': 'TOTAL', 'right': _money.format(_payable)},
+      {'type': 'row', 'left': 'TOTAL', 'right': _money.format(total)},
       if (payment.method == 'cash') ...[
         {
           'type': 'row',
@@ -1199,23 +1197,30 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
           'type': 'row',
           'left': 'Change',
           'right': _money.format(
-            (payment.cashTendered - _payable).clamp(0, double.infinity),
+            (payment.cashTendered - total).clamp(0, double.infinity),
           ),
         },
       ],
+      {'type': 'feed', 'lines': 1},
+      {
+        'type': 'text',
+        'text': 'Check your belongings before you leave',
+        'align': 'center',
+      },
+      {'type': 'text', 'text': 'SELFX POS', 'align': 'center'},
       {'type': 'feed', 'lines': 1},
       {'type': 'cut'},
     ];
 
     return ReceiptPrintObject.fromResponse({
       'order': {
-        'id': queued.localId,
-        'order_number': queued.localId,
+        'id': orderId ?? orderNumber,
+        'order_number': orderNumber,
         'type': _orderType,
         'payment_method': payment.method,
         'subtotal': _moneyValue(_subtotal),
         'discount_total': _moneyValue(_discountAmount),
-        'total': _moneyValue(_payable),
+        'total': _moneyValue(total),
         'items': _cart.map((line) => line.toDisplayJson()).toList(),
       },
       'print_object': {'paper': '58mm', 'print_object': commands},
@@ -1564,7 +1569,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
                   data: widget.data,
                   terminal: widget.terminal,
                   staffName: staffName,
-                  onDisplayLauncher: _openDisplayLauncher,
                   onCustomerDisplay: _openCustomerDisplay,
                   darkMode: _darkMode,
                   onToggleTheme: () => setState(() => _darkMode = !_darkMode),
@@ -1646,7 +1650,6 @@ class _PosHeader extends StatelessWidget {
     required this.data,
     required this.terminal,
     required this.staffName,
-    required this.onDisplayLauncher,
     required this.onCustomerDisplay,
     required this.darkMode,
     required this.onToggleTheme,
@@ -1657,7 +1660,6 @@ class _PosHeader extends StatelessWidget {
   final PosBootstrap data;
   final TerminalContext terminal;
   final String staffName;
-  final VoidCallback onDisplayLauncher;
   final VoidCallback onCustomerDisplay;
   final bool darkMode;
   final VoidCallback onToggleTheme;
@@ -1679,6 +1681,8 @@ class _PosHeader extends StatelessWidget {
         final compact = constraints.maxWidth < 1120;
         final tight = constraints.maxWidth < 820;
         final iconButtonStyle = IconButton.styleFrom(
+          foregroundColor: const Color(0xFF334155),
+          backgroundColor: Colors.white,
           fixedSize: const Size(42, 42),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
@@ -1741,61 +1745,24 @@ class _PosHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              if (!tight) ...[
-                SizedBox(
-                  height: 42,
-                  child: compact
-                      ? IconButton(
-                          style: iconButtonStyle,
-                          tooltip: 'Order History',
-                          onPressed: onCustomerDisplay,
-                          icon: const Icon(
-                            Icons.connected_tv_outlined,
-                            size: 19,
-                            color: Color(0xFF10B981),
-                          ),
-                        )
-                      : ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            elevation: 2,
-                            shadowColor: const Color(
-                              0xFF10B981,
-                            ).withValues(alpha: 0.20),
-                            foregroundColor: const Color(0xFF111827),
-                            backgroundColor: Colors.white,
-                            side: const BorderSide(color: Color(0xFFE5E7EB)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          onPressed: onCustomerDisplay,
-                          icon: const Icon(
-                            Icons.connected_tv_outlined,
-                            color: Color(0xFF10B981),
-                          ),
-                          label: const Text('Order History'),
-                        ),
-                ),
-                const SizedBox(width: 8),
-              ],
               SizedBox(
                 height: 42,
-                child: tight
+                child: compact || tight
                     ? IconButton(
                         style: iconButtonStyle,
-                        tooltip: 'Displays',
-                        onPressed: onDisplayLauncher,
+                        tooltip: 'Order History',
+                        onPressed: onCustomerDisplay,
                         icon: const Icon(
-                          Icons.dashboard_customize_outlined,
+                          Icons.connected_tv_outlined,
                           size: 19,
-                          color: Color(0xFF4F46E5),
+                          color: Color(0xFF10B981),
                         ),
                       )
                     : ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
                           elevation: 2,
                           shadowColor: const Color(
-                            0xFF4F46E5,
+                            0xFF10B981,
                           ).withValues(alpha: 0.20),
                           foregroundColor: const Color(0xFF111827),
                           backgroundColor: Colors.white,
@@ -1804,12 +1771,12 @@ class _PosHeader extends StatelessWidget {
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
-                        onPressed: onDisplayLauncher,
+                        onPressed: onCustomerDisplay,
                         icon: const Icon(
-                          Icons.dashboard_customize_outlined,
-                          color: Color(0xFF4F46E5),
+                          Icons.connected_tv_outlined,
+                          color: Color(0xFF10B981),
                         ),
-                        label: const Text('Displays'),
+                        label: const Text('Order History'),
                       ),
               ),
               const SizedBox(width: 8),
@@ -1823,7 +1790,7 @@ class _PosHeader extends StatelessWidget {
                   const SizedBox(width: 8),
                 ],
                 IconButton(
-                  style: compact ? iconButtonStyle : null,
+                  style: iconButtonStyle,
                   tooltip: darkMode ? 'Light mode' : 'Dark mode',
                   onPressed: onToggleTheme,
                   icon: Icon(
@@ -1833,7 +1800,7 @@ class _PosHeader extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  style: compact ? iconButtonStyle : null,
+                  style: iconButtonStyle,
                   tooltip: 'Fullscreen',
                   onPressed: onFullscreen,
                   icon: const Icon(Icons.fullscreen),
@@ -1875,143 +1842,6 @@ class _PosHeader extends StatelessWidget {
   }
 }
 
-enum _DisplayLaunchAction { kitchen, customer }
-
-class _DisplayLauncherDialog extends StatelessWidget {
-  const _DisplayLauncherDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.dashboard_customize_outlined,
-                    color: Color(0xFF4F46E5),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Open display',
-                      style: TextStyle(
-                        color: Color(0xFF111827),
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _DisplayLaunchTile(
-                icon: Icons.soup_kitchen_outlined,
-                title: 'Kitchen Display',
-                subtitle:
-                    'Shows live orders and status controls for kitchen staff.',
-                onTap: () =>
-                    Navigator.of(context).pop(_DisplayLaunchAction.kitchen),
-              ),
-              const SizedBox(height: 10),
-              _DisplayLaunchTile(
-                icon: Icons.connected_tv_outlined,
-                title: 'Order History',
-                subtitle:
-                    'Opens the full-screen order history for customer tokens.',
-                onTap: () =>
-                    Navigator.of(context).pop(_DisplayLaunchAction.customer),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DisplayLaunchTile extends StatelessWidget {
-  const _DisplayLaunchTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFFFFFFF),
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE0E7FF),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, color: const Color(0xFF4F46E5)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Color(0xFF111827),
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: Color(0xFF64748B),
-                        fontSize: 12,
-                        height: 1.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Color(0xFF64748B)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ShiftStrip extends StatelessWidget {
   const _ShiftStrip({
     required this.currentShift,
@@ -2035,7 +1865,6 @@ class _ShiftStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final shiftOpen = currentShift != null;
     return Container(
       height: 50,
@@ -2065,7 +1894,7 @@ class _ShiftStrip extends StatelessWidget {
                 if (shiftOpen)
                   TextSpan(
                     text: ' - ${_shiftLabel(currentShift)}',
-                    style: TextStyle(color: colors.onSurfaceVariant),
+                    style: const TextStyle(color: Color(0xFF64748B)),
                   ),
               ],
             ),
@@ -2110,6 +1939,14 @@ class _ShiftStrip extends StatelessWidget {
             ),
           const SizedBox(width: 12),
           IconButton(
+            style: IconButton.styleFrom(
+              foregroundColor: const Color(0xFF334155),
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: const BorderSide(color: Color(0xFFE5E7EB)),
+              ),
+            ),
             visualDensity: VisualDensity.compact,
             constraints: const BoxConstraints.tightFor(width: 32, height: 32),
             padding: EdgeInsets.zero,
@@ -2117,13 +1954,16 @@ class _ShiftStrip extends StatelessWidget {
                 ? printerConfig!.name
                 : 'Printer not set',
             onPressed: onPrinterTap,
-            icon: const Icon(Icons.monitor_outlined, size: 17),
+            icon: const Icon(Icons.print_outlined, size: 17),
           ),
           const SizedBox(width: 4),
           SizedBox(
             height: 32,
             child: OutlinedButton(
               style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF334155),
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFFD1D5DB)),
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 minimumSize: Size.zero,
                 shape: RoundedRectangleBorder(
@@ -6258,6 +6098,21 @@ List<_ShiftPaymentMethodLine> _shiftPaymentMethodLines(
   return const [];
 }
 
+Map<String, dynamic> _extractSummaryMap(Map<String, dynamic> source) {
+  final direct = source['summary'];
+  if (direct is Map) {
+    return Map<String, dynamic>.from(direct);
+  }
+  final data = source['data'];
+  if (data is Map) {
+    final nested = data['summary'];
+    if (nested is Map) {
+      return Map<String, dynamic>.from(nested);
+    }
+  }
+  return const <String, dynamic>{};
+}
+
 double _closeShiftExpected(Map<String, dynamic> summary) {
   final direct = _summaryAmount(summary, const [
     'expected_cash',
@@ -7817,7 +7672,7 @@ class _HeaderChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+          Icon(icon, size: 20, color: const Color(0xFFF59E0B)),
           const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -7825,11 +7680,20 @@ class _HeaderChip extends StatelessWidget {
             children: [
               Text(
                 caption.toUpperCase(),
-                style: Theme.of(
-                  context,
-                ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w900),
+                style: const TextStyle(
+                  color: Color(0xFF92400E),
+                  fontSize: 11,
+                  height: 1,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ],
           ),
         ],
