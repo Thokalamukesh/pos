@@ -148,6 +148,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   Timer? _selectedProductResetTimer;
   Timer? _noticeTimer;
   Timer? _orderPollTimer;
+  Timer? _menuRefreshTimer;
   OverlayEntry? _noticeEntry;
   Set<String> _knownOpenOrders = const {};
   bool _orderPollPrimed = false;
@@ -158,6 +159,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _setFirstCategory();
     _searchController.addListener(() => setState(() {}));
     unawaited(_loadMenuCategories());
+    _startMenuRefreshPolling();
     _startOrderPolling();
   }
 
@@ -174,7 +176,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       }
       unawaited(_loadMenuCategories());
     }
-    if (!_categories.any((category) => category.id == _activeCategoryId)) {
+    if (!_activeCategoryHasItems()) {
       _setFirstCategory();
     }
   }
@@ -185,6 +187,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _selectedProductResetTimer?.cancel();
     _noticeTimer?.cancel();
     _orderPollTimer?.cancel();
+    _menuRefreshTimer?.cancel();
     _noticeEntry?.remove();
     _searchController.dispose();
     _orderNoteController.dispose();
@@ -192,83 +195,12 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   }
 
   List<_CatalogCategory> get _categories {
-    final source = _mergedCategoryData(
-      widget.data.categories,
-      _menuCategoryData,
-    );
+    final source = _menuCategoryData ?? widget.data.categories;
     return source
+        .where(_isMenuEntityVisible)
         .map(_CatalogCategory.fromJson)
         .where((category) => category.id.isNotEmpty)
         .toList();
-  }
-
-  List<Map<String, dynamic>> _mergedCategoryData(
-    List<Map<String, dynamic>> bootstrap,
-    List<Map<String, dynamic>>? refreshed,
-  ) {
-    final byKey = <String, Map<String, dynamic>>{};
-    final order = <String>[];
-
-    void absorb(Map<String, dynamic> rawCategory) {
-      final key = _categoryDataKey(rawCategory);
-      if (key.isEmpty) {
-        return;
-      }
-
-      final incoming = Map<String, dynamic>.from(rawCategory);
-      final existing = byKey[key];
-      if (existing == null) {
-        byKey[key] = incoming;
-        order.add(key);
-        return;
-      }
-
-      final merged = <String, dynamic>{...existing, ...incoming};
-      if (!_categoryDataHasItems(incoming) && _categoryDataHasItems(existing)) {
-        for (final itemKey in const [
-          'items',
-          'menu_items',
-          'menuItems',
-          'products',
-        ]) {
-          if (existing.containsKey(itemKey)) {
-            merged[itemKey] = existing[itemKey];
-            break;
-          }
-        }
-      }
-      byKey[key] = merged;
-    }
-
-    for (final category in bootstrap) {
-      absorb(category);
-    }
-    for (final category in refreshed ?? const <Map<String, dynamic>>[]) {
-      absorb(category);
-    }
-
-    return [for (final key in order) byKey[key]!];
-  }
-
-  String _categoryDataKey(Map<String, dynamic> category) {
-    return _stringValue(
-      category['id'] ??
-          category['category_id'] ??
-          category['categoryId'] ??
-          category['uuid'] ??
-          category['slug'] ??
-          category['name'] ??
-          category['title'],
-    );
-  }
-
-  bool _categoryDataHasItems(Map<String, dynamic> category) {
-    return _firstMapList(category, const [
-      'items',
-      'menu_items',
-      'menuItems',
-      'products',
-    ]).isNotEmpty;
   }
 
   List<_CatalogItem> get _allItems {
@@ -280,7 +212,8 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     final mapped = widget.data.popularItems
         .map((item) => _CatalogItem.fromJson(item, categoryName: 'Popular'))
         .where((item) => item.id.isNotEmpty)
-        .map((item) => allById[item.id] ?? item)
+        .map((item) => allById[item.id])
+        .whereType<_CatalogItem>()
         .toList();
     return mapped.isNotEmpty ? mapped : _allItems.take(12).toList();
   }
@@ -335,6 +268,15 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     }
   }
 
+  bool _activeCategoryHasItems() {
+    for (final category in _categories) {
+      if (category.id == _activeCategoryId) {
+        return category.items.isNotEmpty;
+      }
+    }
+    return false;
+  }
+
   void _selectCategory(String id) {
     setState(() {
       _activeCategoryId = id;
@@ -353,17 +295,25 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         return;
       }
       setState(() {
-        _menuCategoryData = _mergedCategoryData(
-          _menuCategoryData ?? const <Map<String, dynamic>>[],
-          categories,
-        );
-        if (!_categories.any((category) => category.id == _activeCategoryId)) {
+        _menuCategoryData = categories;
+        if (!_activeCategoryHasItems()) {
           _setFirstCategory();
+        }
+        if (_selectedProductId != null &&
+            !_allItems.any((item) => item.id == _selectedProductId)) {
+          _selectedProductId = null;
         }
       });
     } on Object {
       // Bootstrap menu remains the fallback if /pos/menu is unavailable.
     }
+  }
+
+  void _startMenuRefreshPolling() {
+    _menuRefreshTimer?.cancel();
+    _menuRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      unawaited(_loadMenuCategories());
+    });
   }
 
   void _startOrderPolling() {
@@ -8321,6 +8271,7 @@ class _CatalogCategory {
       name: name,
       imageUrl: _imageUrlFromJson(json),
       items: rawItems
+          .where(_isMenuEntityVisible)
           .map(
             (item) => _CatalogItem.fromJson(
               item,
@@ -8426,6 +8377,7 @@ class _ModifierGroup {
       'items',
     ]);
     final options = rawOptions
+        .where(_isMenuEntityVisible)
         .map(_ModifierOption.fromJson)
         .where((option) => option.id.isNotEmpty)
         .toList();
@@ -8672,6 +8624,7 @@ class _CatalogItem {
                 'variation_options',
                 'variationOptions',
               ])
+              .where(_isMenuEntityVisible)
               .map(
                 (variant) => _ItemVariant.fromJson(variant, basePrice: price),
               )
@@ -8695,10 +8648,12 @@ class _CatalogItem {
                 'linked_modifiers',
                 'linkedModifiers',
               ])
+              .where(_isMenuEntityVisible)
               .map(_ModifierGroup.fromJson)
               .where((group) => group.options.isNotEmpty)
               .toList(),
       upsellItems: rawUpsellItems
+          .where(_isMenuEntityVisible)
           .map(
             (item) => _CatalogItem.fromJson(
               item,
@@ -9099,6 +9054,98 @@ List<Object?> _firstList(Map<String, dynamic> source, List<String> keys) {
     }
   }
   return const [];
+}
+
+bool _isMenuEntityVisible(Map<String, dynamic> source) {
+  for (final key in const [
+    'is_active',
+    'isActive',
+    'active',
+    'enabled',
+    'is_enabled',
+    'isEnabled',
+    'available',
+    'is_available',
+    'isAvailable',
+    'in_stock',
+    'inStock',
+    'visible',
+    'show_in_pos',
+    'showInPos',
+    'pos_enabled',
+    'posEnabled',
+  ]) {
+    final parsed = _nullableBool(_deepValue(source, key));
+    if (parsed == false) {
+      return false;
+    }
+  }
+
+  final status = _firstText(source, const [
+    'status',
+    'availability',
+    'state',
+    'menu_status',
+    'menuStatus',
+  ]).toLowerCase();
+  final normalizedStatus = status.replaceAll(RegExp(r'[^a-z0-9]'), '_');
+  if (const {
+    'inactive',
+    'disabled',
+    'unavailable',
+    'sold_out',
+    'soldout',
+    'out_of_stock',
+    'outofstock',
+    'hidden',
+    'draft',
+    'archived',
+    'deleted',
+    'off',
+    '0',
+    'false',
+  }.contains(normalizedStatus)) {
+    return false;
+  }
+  return true;
+}
+
+bool? _nullableBool(Object? value) {
+  if (value is bool) {
+    return value;
+  }
+  if (value is num) {
+    return value != 0;
+  }
+  final text = value?.toString().trim().toLowerCase();
+  if (text == null || text.isEmpty) {
+    return null;
+  }
+  if (const {
+    '1',
+    'true',
+    'yes',
+    'y',
+    'on',
+    'enabled',
+    'active',
+    'available',
+  }.contains(text)) {
+    return true;
+  }
+  if (const {
+    '0',
+    'false',
+    'no',
+    'n',
+    'off',
+    'disabled',
+    'inactive',
+    'unavailable',
+  }.contains(text)) {
+    return false;
+  }
+  return null;
 }
 
 List<Map<String, dynamic>> _asMapList(Object? value) {
