@@ -123,6 +123,7 @@ Future<void> _sendLanEscPosBytes({
   Socket? socket;
   try {
     socket = await Socket.connect(host, port, timeout: timeout);
+    socket.setOption(SocketOption.tcpNoDelay, true);
     socket.add(bytes);
     await socket.flush();
     await socket.close();

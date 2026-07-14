@@ -486,6 +486,18 @@ void main() {
     expect(config.toJson()['print_receipts'], isTrue);
   });
 
+  test('printer config normalizes wide 88mm paper setting', () {
+    final config = PrinterConfig.fromJson({
+      'name': 'Wide receipt',
+      'connection_type': 'lan',
+      'host': '192.168.1.60',
+      'paper_width': '88mm',
+    });
+
+    expect(config.paperWidth, '80mm');
+    expect(config.toJson()['paper_width'], '80mm');
+  });
+
   test('printer config persists USB and Bluetooth device identity', () {
     final usb = PrinterConfig.fromJson({
       'name': 'USB receipt',

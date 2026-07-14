@@ -153,6 +153,9 @@ String _normalizePaperWidth(String value) {
   if (text.contains('72')) {
     return '72mm';
   }
+  if (text.contains('80') || text.contains('88')) {
+    return '80mm';
+  }
   return '80mm';
 }
 

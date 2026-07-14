@@ -5111,6 +5111,7 @@ class _PrinterSetupDialogState extends ConsumerState<_PrinterSetupDialog> {
   final _hostController = TextEditingController();
   final _portController = TextEditingController(text: '9100');
   String _connectionType = 'lan';
+  String _paperWidth = '58mm';
   bool _enabled = true;
   bool _printReceipts = true;
   bool _scanning = false;
@@ -5125,6 +5126,7 @@ class _PrinterSetupDialogState extends ConsumerState<_PrinterSetupDialog> {
     _connectionType = initial?.connectionType ?? 'lan';
     _hostController.text = initial?.host ?? '';
     _portController.text = '${initial?.port ?? 9100}';
+    _paperWidth = initial?.paperWidth ?? '58mm';
     _enabled = initial?.enabled ?? true;
     _printReceipts = initial?.printReceipts ?? true;
     if (initial != null && initial.connectionType == 'smartpos') {
@@ -5217,6 +5219,7 @@ class _PrinterSetupDialogState extends ConsumerState<_PrinterSetupDialog> {
       productId: _connectionType == 'lan' || _connectionType == 'smartpos'
           ? null
           : selected?.productId,
+      paperWidth: _paperWidth,
       enabled: _enabled,
       printReceipts: _printReceipts,
     );
@@ -5386,7 +5389,7 @@ class _PrinterSetupDialogState extends ConsumerState<_PrinterSetupDialog> {
                       segments: const [
                         ButtonSegment(
                           value: 'lan',
-                          label: Text('LAN'),
+                          label: Text('Wi-Fi/LAN'),
                           icon: Icon(Icons.lan),
                         ),
                         ButtonSegment(
@@ -5422,6 +5425,35 @@ class _PrinterSetupDialogState extends ConsumerState<_PrinterSetupDialog> {
                             _nameController.text = _devices.first.name;
                           }
                         });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Paper size',
+                      style: TextStyle(
+                        color: Color(0xFF475569),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      selected: {_paperWidth},
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(
+                          value: '58mm',
+                          label: Text('56/58mm'),
+                          icon: Icon(Icons.receipt),
+                        ),
+                        ButtonSegment(
+                          value: '80mm',
+                          label: Text('80/88mm'),
+                          icon: Icon(Icons.receipt_long),
+                        ),
+                      ],
+                      onSelectionChanged: (value) {
+                        setState(() => _paperWidth = value.first);
                       },
                     ),
                     const SizedBox(height: 14),

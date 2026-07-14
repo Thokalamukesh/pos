@@ -5,7 +5,6 @@ import 'package:dio/dio.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image/image.dart' as image;
-import 'package:qr/qr.dart' as qr;
 
 import '../models/order_models.dart';
 
@@ -18,6 +17,14 @@ class ReceiptPrinterService {
   static const _poweredBy = 'Powered By';
   static const _footerBrand = 'SELFX POS';
   static Future<CapabilityProfile>? _profileFuture;
+  static final Dio _assetDio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 2),
+      receiveTimeout: const Duration(seconds: 3),
+    ),
+  );
+  static final Map<String, Future<image.Image?>> _logoImageCache =
+      <String, Future<image.Image?>>{};
 
   Future<List<int>> buildEscPos(
     ReceiptPrintObject receipt, {
@@ -25,7 +32,7 @@ class ReceiptPrinterService {
     String? paperWidth,
   }) async {
     final profile = await _profile();
-    final selectedPaper = receipt.paper ?? paperWidth;
+    final selectedPaper = paperWidth ?? receipt.paper;
     final paperSize = _paperSize(selectedPaper);
     final lineChars = _paperLineChars(selectedPaper, paperSize);
     final generator = Generator(paperSize, profile);
@@ -56,6 +63,7 @@ class ReceiptPrinterService {
     if (!hasInit) {
       bytes.addAll(generator.reset());
     }
+    await _precacheLogoCommands(commands);
     for (final command in commands) {
       bytes.addAll(
         await _renderCommand(
@@ -72,6 +80,34 @@ class ReceiptPrinterService {
     }
 
     return bytes;
+  }
+
+  Future<void> _precacheLogoCommands(
+    List<Map<String, dynamic>> commands,
+  ) async {
+    final urls = <String>{};
+    for (final command in commands) {
+      final type = _commandType(command);
+      if (type != 'logo' && type != 'image') {
+        continue;
+      }
+      final url = _stringValue(command['url'] ?? command['src']);
+      if (_isHttpUrl(url)) {
+        urls.add(url);
+      }
+    }
+    if (urls.isEmpty) {
+      return;
+    }
+    await Future.wait(
+      urls.map((url) async {
+        try {
+          await _loadLogoImage(url);
+        } catch (_) {
+          // Logo failures should not delay or fail the receipt.
+        }
+      }),
+    );
   }
 
   static Future<CapabilityProfile> _profile() {
@@ -430,13 +466,13 @@ class ReceiptPrinterService {
         return Future.value(
           data.isEmpty
               ? const <int>[]
-              : _renderCenteredQrImage(
-                  generator,
+              : generator.qrcode(
                   data,
-                  lineChars,
-                  size: command['size'] ?? command['qr_size'],
-                  correction:
-                      command['correction'] ?? command['error_correction'],
+                  align: PosAlign.center,
+                  size: _qrSize(command['size'] ?? command['qr_size']),
+                  cor: _qrCorrection(
+                    command['correction'] ?? command['error_correction'],
+                  ),
                 ),
         );
       case 'barcode':
@@ -503,21 +539,11 @@ class ReceiptPrinterService {
     if (url.isEmpty) {
       return const <int>[];
     }
-    final normalizedUrl = url.toLowerCase();
-    if (!normalizedUrl.startsWith('http://') &&
-        !normalizedUrl.startsWith('https://')) {
+    if (!_isHttpUrl(url)) {
       return const <int>[];
     }
     try {
-      final response = await Dio().get<List<int>>(
-        url,
-        options: Options(responseType: ResponseType.bytes),
-      );
-      final bytes = response.data;
-      if (bytes == null || bytes.isEmpty) {
-        return const <int>[];
-      }
-      final decoded = image.decodeImage(Uint8List.fromList(bytes));
+      final decoded = await _loadLogoImage(url);
       if (decoded == null) {
         return const <int>[];
       }
@@ -543,6 +569,24 @@ class ReceiptPrinterService {
     } catch (_) {
       return const <int>[];
     }
+  }
+
+  Future<image.Image?> _loadLogoImage(String url) {
+    return _logoImageCache.putIfAbsent(url, () async {
+      try {
+        final response = await _assetDio.get<List<int>>(
+          url,
+          options: Options(responseType: ResponseType.bytes),
+        );
+        final bytes = response.data;
+        if (bytes == null || bytes.isEmpty) {
+          return null;
+        }
+        return image.decodeImage(Uint8List.fromList(bytes));
+      } catch (_) {
+        return null;
+      }
+    });
   }
 
   List<int> _renderRow(
@@ -578,58 +622,6 @@ class ReceiptPrinterService {
     }
 
     return const <int>[];
-  }
-
-  List<int> _renderCenteredQrImage(
-    Generator generator,
-    String data,
-    int lineChars, {
-    Object? size,
-    Object? correction,
-  }) {
-    try {
-      final canvasWidth = _printableDotWidth(lineChars);
-      final qrSize = _qrImageSize(lineChars, size);
-      final canvasHeight = qrSize + 16;
-      final canvas = image.Image(width: canvasWidth, height: canvasHeight);
-      image.fill(canvas, color: image.ColorRgb8(255, 255, 255));
-
-      final qrCode = qr.QrCode.fromData(
-        data: data,
-        errorCorrectLevel: _qrPackageCorrection(correction),
-      );
-      final qrImage = qr.QrImage(qrCode);
-      final moduleCount = qrImage.moduleCount + 8;
-      final moduleSize = math.max(2, qrSize ~/ moduleCount);
-      final renderedSize = moduleCount * moduleSize;
-      final left = math.max(0, (canvasWidth - renderedSize) ~/ 2);
-      const top = 8;
-      final black = image.ColorRgb8(0, 0, 0);
-
-      for (var row = 0; row < qrImage.moduleCount; row += 1) {
-        for (var col = 0; col < qrImage.moduleCount; col += 1) {
-          if (!qrImage.isDark(row, col)) {
-            continue;
-          }
-          _fillRect(
-            canvas,
-            x: left + ((col + 4) * moduleSize),
-            y: top + ((row + 4) * moduleSize),
-            size: moduleSize,
-            color: black,
-          );
-        }
-      }
-
-      return generator.imageRaster(canvas, align: PosAlign.left);
-    } catch (_) {
-      return generator.qrcode(
-        data,
-        align: PosAlign.center,
-        size: _qrSize(size),
-        cor: _qrCorrection(correction),
-      );
-    }
   }
 
   List<int> _renderColumns(
@@ -969,24 +961,6 @@ PosCutMode _cutMode(Object? value) {
   };
 }
 
-int _qrPackageCorrection(Object? value) {
-  switch (_stringValue(value).toLowerCase()) {
-    case 'm':
-    case 'medium':
-      return qr.QrErrorCorrectLevel.M;
-    case 'q':
-    case 'quartile':
-      return qr.QrErrorCorrectLevel.Q;
-    case 'h':
-    case 'high':
-      return qr.QrErrorCorrectLevel.H;
-    case 'l':
-    case 'low':
-    default:
-      return qr.QrErrorCorrectLevel.L;
-  }
-}
-
 int _printableDotWidth(int lineChars) {
   if (lineChars <= 32) {
     return 384;
@@ -1007,43 +981,17 @@ int _logoMaxWidth(int lineChars, Object? value) {
   return lineChars <= 32 ? 180 : 240;
 }
 
-int _qrImageSize(int lineChars, Object? value) {
-  final text = _stringValue(value).toLowerCase();
-  final numeric = int.tryParse(text.replaceAll(RegExp(r'[^0-9]'), ''));
-  if (numeric != null && numeric >= 80) {
-    return numeric.clamp(120, _printableDotWidth(lineChars) - 32);
-  }
-  if (text.contains('small')) {
-    return lineChars <= 32 ? 176 : 216;
-  }
-  if (text.contains('large')) {
-    return lineChars <= 32 ? 248 : 300;
-  }
-  return lineChars <= 32 ? 216 : 264;
-}
-
-void _fillRect(
-  image.Image canvas, {
-  required int x,
-  required int y,
-  required int size,
-  required image.Color color,
-}) {
-  final maxX = math.min(canvas.width, x + size);
-  final maxY = math.min(canvas.height, y + size);
-  for (var py = math.max(0, y); py < maxY; py += 1) {
-    for (var px = math.max(0, x); px < maxX; px += 1) {
-      canvas.setPixel(px, py, color);
-    }
-  }
-}
-
 String _dividerChar(Map<String, dynamic> command) {
   final value = _stringValue(
     command['char'] ?? command['pattern'],
     fallback: '-',
   );
   return value.isEmpty ? '-' : value.substring(0, 1);
+}
+
+bool _isHttpUrl(String value) {
+  final normalized = value.toLowerCase();
+  return normalized.startsWith('http://') || normalized.startsWith('https://');
 }
 
 String _printerText(String value, {String? currencyCode}) {
