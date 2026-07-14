@@ -7157,7 +7157,9 @@ class _TableChoiceButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = table.status.trim();
-    final available = status.isEmpty || status.toLowerCase() == 'available';
+    final available =
+        status.isEmpty ||
+        const {'available', 'free', 'open'}.contains(status.toLowerCase());
     return SizedBox(
       width: 178,
       child: Material(
@@ -7235,7 +7237,7 @@ class _TableChoiceButton extends StatelessWidget {
                     const Spacer(),
                     if (status.isNotEmpty)
                       Text(
-                        status,
+                        _humanizeTableStatus(status),
                         style: TextStyle(
                           color: available
                               ? const Color(0xFF059669)
@@ -8826,6 +8828,17 @@ class _PosTable {
   final int sortOrder;
   final int? areaId;
 
+  _PosTable merge(_PosTable incoming) {
+    return _PosTable(
+      id: incoming.id.toString().isNotEmpty ? incoming.id : id,
+      name: incoming.name == 'Table' ? name : incoming.name,
+      status: incoming.status.isNotEmpty ? incoming.status : status,
+      capacity: incoming.capacity > 0 ? incoming.capacity : capacity,
+      sortOrder: incoming.sortOrder > 0 ? incoming.sortOrder : sortOrder,
+      areaId: incoming.areaId ?? areaId,
+    );
+  }
+
   factory _PosTable.fromJson(Map<String, dynamic> json) {
     final name = _firstText(json, const ['name', 'label']);
     return _PosTable(
@@ -8848,12 +8861,10 @@ class _TableAreaGroup {
 
 List<_TableAreaGroup> _tableGroupsFromApi(Map<String, dynamic> source) {
   final areaMaps = _asMapList(source['table_areas'] ?? source['areas']);
-  final tableMaps = <Map<String, dynamic>>[
-    ..._asMapList(source['tables']),
-    ..._asMapList(source['tables_without_area']),
-  ];
+  final topLevelTableMaps = _asMapList(source['tables']);
+  final noAreaTableMaps = _asMapList(source['tables_without_area']);
   final tablesById = <String, _PosTable>{};
-  for (final raw in tableMaps) {
+  for (final raw in [...topLevelTableMaps, ...noAreaTableMaps]) {
     final table = _PosTable.fromJson(raw);
     final id = table.id.toString();
     if (id.isNotEmpty) {
@@ -8881,11 +8892,23 @@ List<_TableAreaGroup> _tableGroupsFromApi(Map<String, dynamic> source) {
     final areaId = _nullableInt(area['id']);
     final areaName = _firstText(area, const ['name', 'label']);
     final name = areaName.isEmpty ? 'Area' : areaName;
-    final areaTables =
-        tables
-            .where((table) => areaId != null && table.areaId == areaId)
-            .toList()
-          ..sort(_comparePosTables);
+    final nestedTables = _asMapList(area['tables']);
+    final areaTables = nestedTables.isNotEmpty
+        ? nestedTables
+              .map((raw) {
+                final nested = _PosTable.fromJson({
+                  if (areaId != null) 'table_area_id': areaId,
+                  ...raw,
+                });
+                final existing = tablesById[nested.id.toString()];
+                return existing == null ? nested : existing.merge(nested);
+              })
+              .where((table) => table.id.toString().isNotEmpty)
+              .toList()
+        : tables
+              .where((table) => areaId != null && table.areaId == areaId)
+              .toList();
+    areaTables.sort(_comparePosTables);
     assignedIds.addAll(areaTables.map((table) => table.id.toString()));
     groups.add(_TableAreaGroup(name: name, tables: areaTables));
   }
@@ -8909,6 +8932,22 @@ int _comparePosTables(_PosTable a, _PosTable b) {
     return sort;
   }
   return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+}
+
+String _humanizeTableStatus(String value) {
+  final cleaned = value.trim().replaceAll(RegExp(r'[_-]+'), ' ');
+  if (cleaned.isEmpty) {
+    return '';
+  }
+  return cleaned
+      .split(RegExp(r'\s+'))
+      .map((word) {
+        if (word.isEmpty) {
+          return word;
+        }
+        return '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}';
+      })
+      .join(' ');
 }
 
 Map<String, dynamic>? _extractShift(Map<String, dynamic> source) {
