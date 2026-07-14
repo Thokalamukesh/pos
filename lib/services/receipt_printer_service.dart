@@ -339,7 +339,36 @@ class ReceiptPrinterService {
     if (!hasServerFooter && !footerInjected) {
       normalized.add(_footerCommand());
     }
-    return normalized;
+    return _withoutRedundantTrailingCuts(normalized);
+  }
+
+  List<Map<String, dynamic>> _withoutRedundantTrailingCuts(
+    List<Map<String, dynamic>> commands,
+  ) {
+    final cleaned = commands
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    while (cleaned.length >= 2 && _commandType(cleaned.last) == 'cut') {
+      var previousIndex = cleaned.length - 2;
+      while (previousIndex >= 0 &&
+          (_commandType(cleaned[previousIndex]) == 'feed' ||
+              _commandType(cleaned[previousIndex]) == 'space' ||
+              _commandType(cleaned[previousIndex]) == 'blank')) {
+        previousIndex -= 1;
+      }
+      if (previousIndex < 0 || _commandType(cleaned[previousIndex]) != 'cut') {
+        break;
+      }
+      cleaned.removeLast();
+      while (cleaned.isNotEmpty) {
+        final type = _commandType(cleaned.last);
+        if (type != 'feed' && type != 'space' && type != 'blank') {
+          break;
+        }
+        cleaned.removeLast();
+      }
+    }
+    return cleaned;
   }
 
   bool _hasServerReceiptFooter(List<Map<String, dynamic>> commands) {

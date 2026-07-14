@@ -468,6 +468,35 @@ void main() {
     },
   );
 
+  test(
+    'receipt printer drops redundant final cut after counter copy',
+    () async {
+      final receipt = ReceiptPrintObject.fromResponse({
+        'order': {'id': 88},
+        'print_object': {
+          'paper': '58mm',
+          'print_object': [
+            {'type': 'init'},
+            {'type': 'text', 'text': 'TOKEN #1', 'align': 'center'},
+            {'type': 'text', 'text': 'Thank you for your order!'},
+            {'type': 'cut', 'mode': 'partial'},
+            {'type': 'text', 'text': 'COUNTER COPY', 'align': 'center'},
+            {'type': 'feed', 'lines': 2},
+            {'type': 'cut', 'mode': 'partial'},
+            {'type': 'cut', 'mode': 'full'},
+          ],
+        },
+      });
+
+      final bytes = await ReceiptPrinterService().buildEscPos(receipt);
+      final text = String.fromCharCodes(bytes);
+
+      expect(text, contains('TOKEN #1'));
+      expect(text, contains('COUNTER COPY'));
+      expect(RegExp('\x1dV').allMatches(text), hasLength(2));
+    },
+  );
+
   test('printer config persists LAN receipt settings', () {
     final config = PrinterConfig.fromJson({
       'name': 'Counter receipt',
