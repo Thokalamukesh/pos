@@ -269,21 +269,29 @@ class ReceiptPrinterService {
     List<Map<String, dynamic>> commands,
   ) {
     final normalized = <Map<String, dynamic>>[];
-    if (_hasServerReceiptFooter(commands)) {
-      return commands
-          .map((command) => Map<String, dynamic>.from(command))
-          .toList();
-    }
-
+    final hasServerFooter = _hasServerReceiptFooter(commands);
     var footerInjected = false;
+    var skipNextRestaurantTitle = false;
     for (final original in commands) {
       final command = Map<String, dynamic>.from(original);
       final type = _commandType(command);
-      if (_isFooterCommand(command)) {
+      if (skipNextRestaurantTitle && _isRestaurantTitleCommand(command)) {
+        skipNextRestaurantTitle = false;
+        continue;
+      }
+      if (skipNextRestaurantTitle && type != 'feed' && type != 'blank') {
+        skipNextRestaurantTitle = false;
+      }
+      if (_isRestaurantLogoCommand(command)) {
+        normalized.add(command);
+        skipNextRestaurantTitle = true;
+        continue;
+      }
+      if (!hasServerFooter && _isFooterCommand(command)) {
         continue;
       }
       if (type == 'cut') {
-        if (!footerInjected) {
+        if (!hasServerFooter && !footerInjected) {
           normalized.add(_footerCommand());
           footerInjected = true;
         }
@@ -292,7 +300,7 @@ class ReceiptPrinterService {
       }
       normalized.add(command);
     }
-    if (!footerInjected) {
+    if (!hasServerFooter && !footerInjected) {
       normalized.add(_footerCommand());
     }
     return normalized;
@@ -308,14 +316,39 @@ class ReceiptPrinterService {
         return false;
       }
       final url = _stringValue(command['url'] ?? command['src']).toLowerCase();
-      return url.contains('admin-branding') ||
-          url.contains('receipt-logo') ||
-          url.contains('powered');
+      return _isFooterLogoUrl(url);
     });
   }
 
   Map<String, dynamic> _footerCommand() {
     return const <String, dynamic>{'type': '_selfx_footer'};
+  }
+
+  bool _isRestaurantLogoCommand(Map<String, dynamic> command) {
+    final type = _commandType(command);
+    if (type != 'logo' && type != 'image') {
+      return false;
+    }
+    final url = _stringValue(command['url'] ?? command['src']).toLowerCase();
+    if (url.isEmpty) {
+      return false;
+    }
+    return !_isFooterLogoUrl(url);
+  }
+
+  bool _isFooterLogoUrl(String url) {
+    return url.contains('admin-branding') ||
+        url.contains('receipt-logo') ||
+        url.contains('powered');
+  }
+
+  bool _isRestaurantTitleCommand(Map<String, dynamic> command) {
+    final type = _commandType(command);
+    if (type != 'text' && type != 'line') {
+      return false;
+    }
+    final style = _stringValue(command['style']).toLowerCase();
+    return style.contains('title');
   }
 
   bool _isFooterCommand(Map<String, dynamic> command) {
@@ -371,12 +404,17 @@ class ReceiptPrinterService {
         if (text.isEmpty) {
           return Future.value(generator.hr(ch: _dividerChar(command)));
         }
+        final styles = _styles(command);
         return Future.value(
           _renderTextLines(
             generator,
-            _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
+            _wrappedPrinterLines(
+              text,
+              _styledLineChars(lineChars, styles),
+              currencyCode: currencyCode,
+            ),
             lineChars: lineChars,
-            styles: _styles(command),
+            styles: styles,
             currencyCode: currencyCode,
           ),
         );
@@ -439,12 +477,17 @@ class ReceiptPrinterService {
         if (text.isEmpty) {
           return Future.value(const <int>[]);
         }
+        final styles = _styles(command);
         return Future.value(
           _renderTextLines(
             generator,
-            _wrappedPrinterLines(text, lineChars, currencyCode: currencyCode),
+            _wrappedPrinterLines(
+              text,
+              _styledLineChars(lineChars, styles),
+              currencyCode: currencyCode,
+            ),
             lineChars: lineChars,
-            styles: _styles(command),
+            styles: styles,
             currencyCode: currencyCode,
           ),
         );
@@ -458,6 +501,11 @@ class ReceiptPrinterService {
   ) async {
     final url = _stringValue(command['url'] ?? command['src']);
     if (url.isEmpty) {
+      return const <int>[];
+    }
+    final normalizedUrl = url.toLowerCase();
+    if (!normalizedUrl.startsWith('http://') &&
+        !normalizedUrl.startsWith('https://')) {
       return const <int>[];
     }
     try {
@@ -694,6 +742,9 @@ List<int> _renderTextLines(
 }) {
   final bytes = <int>[];
   final manuallyCenter = styles.align == PosAlign.center && lineChars != null;
+  final effectiveLineChars = lineChars == null
+      ? null
+      : _styledLineChars(lineChars, styles);
   final effectiveStyles = manuallyCenter
       ? styles.copyWith(align: PosAlign.left)
       : styles;
@@ -701,7 +752,7 @@ List<int> _renderTextLines(
     final text = _printerText(line, currencyCode: currencyCode);
     bytes.addAll(
       generator.text(
-        manuallyCenter ? _centerAlign(text, lineChars) : text,
+        manuallyCenter ? _centerAlign(text, effectiveLineChars!) : text,
         styles: effectiveStyles,
       ),
     );
@@ -836,6 +887,10 @@ String _centerAlign(String value, int width) {
   }
   final leftPadding = ((width - value.length) / 2).floor();
   return value.padLeft(value.length + leftPadding).padRight(width);
+}
+
+int _styledLineChars(int lineChars, PosStyles styles) {
+  return math.max(1, lineChars ~/ math.max(1, styles.width.value));
 }
 
 PosStyles _styles(Map<String, dynamic> command) {

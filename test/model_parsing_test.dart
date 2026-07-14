@@ -360,7 +360,25 @@ void main() {
           'paper': '80mm',
           'print_object': [
             {'type': 'init'},
-            {'type': 'text', 'text': 'TOKEN #62', 'style': 'large_bold'},
+            {
+              'type': 'logo',
+              'url': 'asset://restaurant-logo',
+              'align': 'center',
+              'max_width_dots': 230,
+            },
+            {
+              'type': 'text',
+              'text': 'Yogi Ahar',
+              'align': 'center',
+              'style': 'title',
+            },
+            {'type': 'text', 'text': 'Main', 'align': 'center'},
+            {
+              'type': 'text',
+              'text': 'TOKEN #118',
+              'align': 'center',
+              'style': 'large_bold',
+            },
             {'type': 'qr', 'data': 'https://app.selfx.in/order/88'},
             {'type': 'text', 'text': 'Thank you for your order!'},
             {'type': 'divider'},
@@ -379,8 +397,11 @@ void main() {
       final text = String.fromCharCodes(bytes);
 
       expect(text, contains('Thank you for your order!'));
+      expect(text, isNot(contains('Yogi Ahar')));
+      expect(text, contains('Main'));
+      expect(text, contains('TOKEN #118'));
       expect(text, contains('TOKEN #62'));
-      expect(RegExp('TOKEN #62').allMatches(text), hasLength(2));
+      expect(RegExp('TOKEN #62').allMatches(text), hasLength(1));
       expect(text, isNot(contains('Powered By')));
       expect(text, isNot(contains('SELFX POS')));
     },
