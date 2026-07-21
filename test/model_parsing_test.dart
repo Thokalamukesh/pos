@@ -4,6 +4,7 @@ import 'package:selfx_pos/models/order_models.dart';
 import 'package:selfx_pos/models/pairing_models.dart';
 import 'package:selfx_pos/models/pos_bootstrap.dart';
 import 'package:selfx_pos/models/printer_config.dart';
+import 'package:selfx_pos/features/customer_display/domain/customer_display_models.dart';
 import 'package:selfx_pos/repositories/offline_order_repository.dart';
 import 'package:selfx_pos/repositories/shift_repository.dart';
 import 'package:selfx_pos/services/shift_api_service.dart';
@@ -302,6 +303,76 @@ void main() {
     expect(receipt.paper, '80mm');
     expect(receipt.commands, hasLength(3));
     expect(receipt.commands.last['right'], 'Rs 13.99');
+  });
+
+  test('POS daily report parses summary and recent orders', () {
+    final report = PosDailyReport.fromResponse({
+      'summary': {
+        'today_orders': 99,
+        'today_revenue': 9010,
+        'today_pending': 96,
+      },
+      'recent_orders': [
+        {
+          'id': 1264,
+          'order_number': 'ORD-20260720110121',
+          'status': 'pending',
+          'payment_status': 'pending',
+          'payment_method': null,
+          'type': 'dine_in',
+          'total': 6,
+          'token': 99,
+          'customer_name': 'Kiosk guest',
+          'created_at': '2026-07-20T17:37:17+00:00',
+        },
+      ],
+    });
+
+    expect(report.todayOrders, 99);
+    expect(report.todayRevenue, 9010);
+    expect(report.todayPending, 96);
+    expect(report.recentOrders, hasLength(1));
+    expect(report.recentOrders.single.displayNumber, 'ORD-20260720110121');
+    expect(report.recentOrders.single.token, 99);
+    expect(report.recentOrders.single.customerName, 'Kiosk guest');
+  });
+
+  test('customer display order history parses items and totals', () {
+    final snapshot = CustomerBoardSnapshot.fromJson({
+      'data': {
+        'recent_orders': [
+          {
+            'id': 1264,
+            'order_number': 'ORD-20260720110121',
+            'status': 'pending',
+            'token': 99,
+            'total': 901,
+            'currency': 'INR',
+            'created_at': '2026-07-20T17:37:17+00:00',
+            'items': [
+              {
+                'menu_item_name': 'Masala Dosa',
+                'quantity': 2,
+                'unit_price': 120,
+                'total': 240,
+              },
+              {'name': 'Tea', 'qty': 1, 'line_total': 20},
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(snapshot.history, hasLength(1));
+    final order = snapshot.history.single;
+    expect(order.token, '99');
+    expect(order.total, 901);
+    expect(order.currency, 'INR');
+    expect(order.items, hasLength(2));
+    expect(order.items.first.name, 'Masala Dosa');
+    expect(order.items.first.quantity, 2);
+    expect(order.items.first.lineTotal, 240);
+    expect(order.items.last.lineTotal, 20);
   });
 
   test('receipt printer renderer produces ESC/POS bytes', () async {

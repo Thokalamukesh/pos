@@ -667,83 +667,196 @@ class _HistoryOrderTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final ready = order.isReady;
     final color = ready ? _DisplayColors.mint : _DisplayColors.orange;
+    final money = NumberFormat.simpleCurrency(name: order.currency);
+    final itemTotal = order.items.fold<double>(
+      0,
+      (sum, item) => sum + item.lineTotal,
+    );
+    final total = order.total > 0 ? order.total : itemTotal;
+    final visibleItems = order.items.take(4).toList();
+    final hiddenItemCount = order.items.length - visibleItems.length;
     return Container(
-      constraints: const BoxConstraints(minHeight: 78),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: _withAlpha(color, ready ? 0.12 : 0.10),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _withAlpha(color, 0.28)),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 50,
-            height: 54,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: _withAlpha(color, 0.18),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.receipt_long_rounded, color: color, size: 26),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _shortOrder(order.orderNumber),
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  softWrap: false,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
+          Row(
+            children: [
+              Container(
+                width: 50,
+                height: 54,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _withAlpha(color, 0.18),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                const SizedBox(height: 7),
-                Row(
+                child: Icon(Icons.receipt_long_rounded, color: color, size: 26),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Flexible(
-                      child: Text(
-                        _statusLabel(order),
-                        maxLines: 1,
-                        overflow: TextOverflow.fade,
-                        softWrap: false,
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
+                    Text(
+                      _shortOrder(order.orderNumber),
+                      maxLines: 1,
+                      overflow: TextOverflow.fade,
+                      softWrap: false,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        _updatedLabel(order.updatedAt),
-                        maxLines: 1,
-                        overflow: TextOverflow.fade,
-                        softWrap: false,
-                        style: const TextStyle(
-                          color: _DisplayColors.muted,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _statusLabel(order),
+                            maxLines: 1,
+                            overflow: TextOverflow.fade,
+                            softWrap: false,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            _updatedLabel(order.updatedAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.fade,
+                            softWrap: false,
+                            style: const TextStyle(
+                              color: _DisplayColors.muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    ready
+                        ? Icons.check_circle_rounded
+                        : Icons.timelapse_rounded,
+                    color: color,
+                    size: 24,
+                  ),
+                  if (total > 0) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      money.format(total),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+          if (visibleItems.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+              decoration: BoxDecoration(
+                color: const Color(0x6608080A),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _withAlpha(color, 0.16)),
+              ),
+              child: Column(
+                children: [
+                  for (final item in visibleItems)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            decoration: BoxDecoration(
+                              color: _withAlpha(color, 0.14),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '${item.quantity}x',
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              item.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFFEDEDF2),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            money.format(item.lineTotal),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: _DisplayColors.muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (hiddenItemCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 5),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '+ $hiddenItemCount more items',
+                          style: TextStyle(
+                            color: _withAlpha(color, 0.82),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-          Icon(
-            ready ? Icons.check_circle_rounded : Icons.timelapse_rounded,
-            color: color,
-            size: 24,
-          ),
+          ],
         ],
       ),
     );

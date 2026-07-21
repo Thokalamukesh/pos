@@ -25,6 +25,7 @@ class CustomerDisplayState {
     this.showPrices = true,
     this.preparing = const [],
     this.ready = const [],
+    this.history = const [],
     this.cart = const CustomerCart(active: false),
     this.lastUpdated,
   });
@@ -41,13 +42,16 @@ class CustomerDisplayState {
   final bool showPrices;
   final List<CustomerDisplayOrder> preparing;
   final List<CustomerDisplayOrder> ready;
+  final List<CustomerDisplayOrder> history;
   final CustomerCart cart;
   final DateTime? lastUpdated;
 
   bool get hasSyncToken => syncToken.trim().isNotEmpty;
   bool get needsSetup => restaurantSlug.trim().isEmpty || branchId <= 0;
   List<CustomerDisplayOrder> get orderHistory {
-    final orders = <CustomerDisplayOrder>[...ready, ...preparing];
+    final orders = history.isNotEmpty
+        ? <CustomerDisplayOrder>[...history]
+        : <CustomerDisplayOrder>[...ready, ...preparing];
     orders.sort((a, b) {
       final left = a.updatedAt;
       final right = b.updatedAt;
@@ -79,6 +83,7 @@ class CustomerDisplayState {
     bool? showPrices,
     List<CustomerDisplayOrder>? preparing,
     List<CustomerDisplayOrder>? ready,
+    List<CustomerDisplayOrder>? history,
     CustomerCart? cart,
     DateTime? lastUpdated,
   }) {
@@ -95,6 +100,7 @@ class CustomerDisplayState {
       showPrices: showPrices ?? this.showPrices,
       preparing: preparing ?? this.preparing,
       ready: ready ?? this.ready,
+      history: history ?? this.history,
       cart: cart ?? this.cart,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
@@ -175,6 +181,7 @@ class CustomerDisplayController extends Notifier<CustomerDisplayState> {
         isLoading: false,
         preparing: board.preparing,
         ready: board.ready,
+        history: board.history,
         cart: const CustomerCart(active: false),
         lastUpdated: DateTime.now(),
         clearError: true,

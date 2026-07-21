@@ -72,4 +72,20 @@ class PosOrderRepository {
       throw AppException.fromDio(error);
     }
   }
+
+  Future<PosDailyReport> fetchDailyReport() async {
+    try {
+      return await _api.fetchDailyReport();
+    } on DioException catch (error) {
+      throw AppException.fromDio(error);
+    }
+  }
+
+  Future<ReceiptPrintObject> fetchDailyReportPrintObject() async {
+    try {
+      return await _api.fetchDailyReportPrintObject();
+    } on DioException catch (error) {
+      throw AppException.fromDio(error);
+    }
+  }
 }

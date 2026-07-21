@@ -244,6 +244,130 @@ class ReceiptPrintObject {
   bool get hasCommands => commands.isNotEmpty;
 }
 
+class PosDailyReport {
+  const PosDailyReport({
+    required this.raw,
+    required this.summary,
+    required this.recentOrders,
+  });
+
+  final Map<String, dynamic> raw;
+  final Map<String, dynamic> summary;
+  final List<PosDailyReportOrder> recentOrders;
+
+  factory PosDailyReport.fromResponse(Map<String, dynamic> json) {
+    final summary = _asMap(json['summary']) ?? const <String, dynamic>{};
+    final ordersValue =
+        json['recent_orders'] ??
+        json['recentOrders'] ??
+        json['orders'] ??
+        json['data'];
+    return PosDailyReport(
+      raw: json,
+      summary: summary,
+      recentOrders: _asMapList(
+        ordersValue,
+      ).map(PosDailyReportOrder.fromJson).toList(),
+    );
+  }
+
+  int get todayOrders {
+    return _intValue(
+          summary['today_orders'] ??
+              summary['todayOrders'] ??
+              summary['orders'] ??
+              summary['orders_count'] ??
+              summary['count'] ??
+              raw['today_orders'],
+        ) ??
+        0;
+  }
+
+  double get todayRevenue {
+    return _doubleValue(
+          summary['today_revenue'] ??
+              summary['todayRevenue'] ??
+              summary['revenue'] ??
+              summary['sales'] ??
+              summary['total_sales'] ??
+              raw['today_revenue'],
+        ) ??
+        0;
+  }
+
+  int get todayPending {
+    return _intValue(
+          summary['today_pending'] ??
+              summary['todayPending'] ??
+              summary['pending'] ??
+              summary['pending_orders'] ??
+              raw['today_pending'],
+        ) ??
+        0;
+  }
+}
+
+class PosDailyReportOrder {
+  const PosDailyReportOrder({
+    required this.raw,
+    this.id,
+    this.orderNumber,
+    this.status,
+    this.paymentStatus,
+    this.paymentMethod,
+    this.type,
+    this.total,
+    this.token,
+    this.customerName,
+    this.createdAt,
+    this.paymentHint,
+  });
+
+  final Map<String, dynamic> raw;
+  final int? id;
+  final String? orderNumber;
+  final String? status;
+  final String? paymentStatus;
+  final String? paymentMethod;
+  final String? type;
+  final double? total;
+  final int? token;
+  final String? customerName;
+  final DateTime? createdAt;
+  final String? paymentHint;
+
+  factory PosDailyReportOrder.fromJson(Map<String, dynamic> json) {
+    return PosDailyReportOrder(
+      raw: json,
+      id: _intValue(json['id'] ?? json['order_id'] ?? json['orderId']),
+      orderNumber: _nullableString(
+        json['order_number'] ?? json['orderNumber'] ?? json['number'],
+      ),
+      status: _nullableString(json['status']),
+      paymentStatus: _nullableString(
+        json['payment_status'] ?? json['paymentStatus'],
+      ),
+      paymentMethod: _nullableString(
+        json['payment_method'] ?? json['paymentMethod'],
+      ),
+      type: _nullableString(json['type'] ?? json['order_type']),
+      total: _doubleValue(json['total'] ?? json['grand_total']),
+      token: _intValue(json['token'] ?? json['token_no']),
+      customerName: _nullableString(
+        json['customer_name'] ?? json['customerName'] ?? json['customer'],
+      ),
+      createdAt: _dateTimeValue(json['created_at'] ?? json['createdAt']),
+      paymentHint: _nullableString(json['payment_hint'] ?? json['paymentHint']),
+    );
+  }
+
+  String get displayNumber {
+    return orderNumber ??
+        (token == null ? null : 'Token $token') ??
+        (id == null ? 'Order' : 'Order $id');
+  }
+}
+
 Object apiIdentifierFromString(String value) {
   return int.tryParse(value) ?? value;
 }
@@ -297,4 +421,15 @@ double? _doubleValue(Object? value) {
     return value.toDouble();
   }
   return double.tryParse(value?.toString() ?? '');
+}
+
+DateTime? _dateTimeValue(Object? value) {
+  if (value is DateTime) {
+    return value;
+  }
+  final text = value?.toString().trim();
+  if (text == null || text.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(text);
 }

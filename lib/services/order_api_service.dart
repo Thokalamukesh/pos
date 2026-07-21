@@ -198,4 +198,37 @@ class PosOrderApiService {
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
   }
+
+  Future<PosDailyReport> fetchDailyReport() async {
+    final paths = const [
+      '/pos/recent-orders',
+      '/pos/reports/daily',
+      '/pos/reports/today',
+      '/pos/daily-report',
+    ];
+    DioException? lastRouteError;
+    for (final path in paths) {
+      try {
+        final response = await _dio.get<Map<String, dynamic>>(
+          '${AppConfig.apiPrefix}$path',
+        );
+        return PosDailyReport.fromResponse(unwrapDataMap(response.data));
+      } on DioException catch (error) {
+        final status = error.response?.statusCode;
+        if (status != 404 && status != 405) {
+          rethrow;
+        }
+        lastRouteError = error;
+      }
+    }
+    throw lastRouteError!;
+  }
+
+  Future<ReceiptPrintObject> fetchDailyReportPrintObject() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '${AppConfig.apiPrefix}/pos/reports/thermal-print',
+      queryParameters: const <String, dynamic>{'type': 'consolidated'},
+    );
+    return ReceiptPrintObject.fromResponse(unwrapDataMap(response.data));
+  }
 }

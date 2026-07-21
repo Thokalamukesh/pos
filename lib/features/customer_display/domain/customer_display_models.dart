@@ -44,10 +44,12 @@ class CustomerBoardSnapshot {
   const CustomerBoardSnapshot({
     this.preparing = const [],
     this.ready = const [],
+    this.history = const [],
   });
 
   final List<CustomerDisplayOrder> preparing;
   final List<CustomerDisplayOrder> ready;
+  final List<CustomerDisplayOrder> history;
 
   factory CustomerBoardSnapshot.fromJson(Map<String, dynamic> json) {
     final data = _asMap(json['data']).isNotEmpty ? _asMap(json['data']) : json;
@@ -62,18 +64,30 @@ class CustomerBoardSnapshot {
     final explicitReady = _ordersFrom(
       data['readyOrders'] ?? data['ready'] ?? const [],
     );
-    final allOrders = _ordersFrom(data['orders'] ?? data['items'] ?? const []);
+    final allOrders = _ordersFrom(
+      data['orders'] ??
+          data['recent_orders'] ??
+          data['recentOrders'] ??
+          data['items'] ??
+          const [],
+    );
 
     if (allOrders.isEmpty) {
+      final history = <CustomerDisplayOrder>[
+        ...explicitReady,
+        ...explicitPreparing,
+      ];
       return CustomerBoardSnapshot(
         preparing: explicitPreparing.where((order) => !order.isHidden).toList(),
         ready: explicitReady.where((order) => !order.isHidden).toList(),
+        history: history,
       );
     }
 
     return CustomerBoardSnapshot(
       preparing: allOrders.where((order) => order.isPreparing).toList(),
       ready: allOrders.where((order) => order.isReady).toList(),
+      history: allOrders,
     );
   }
 }
@@ -84,6 +98,9 @@ class CustomerDisplayOrder {
     required this.orderNumber,
     required this.token,
     required this.status,
+    this.items = const [],
+    this.total = 0,
+    this.currency = 'INR',
     this.updatedAt,
   });
 
@@ -91,6 +108,9 @@ class CustomerDisplayOrder {
   final String orderNumber;
   final String token;
   final String status;
+  final List<CustomerCartItem> items;
+  final double total;
+  final String currency;
   final DateTime? updatedAt;
 
   bool get isReady => _normalizedStatus == 'ready';
@@ -142,8 +162,51 @@ class CustomerDisplayOrder {
               .toString(),
       token: tokenValue.toString(),
       status: (json['status'] ?? '').toString(),
+      items: _cartItemsFrom(
+        _firstValue(json, const [
+          'items',
+          'order_items',
+          'orderItems',
+          'line_items',
+          'lineItems',
+          'lines',
+          'details',
+        ]),
+      ),
+      total:
+          _nullableDouble(
+            _firstValue(json, const [
+              'total',
+              'grand_total',
+              'grandTotal',
+              'payable_amount',
+              'payableAmount',
+              'amount_due',
+              'amountDue',
+              'amount',
+            ]),
+          ) ??
+          0,
+      currency:
+          _nullableText(
+            _firstValue(json, const [
+              'currency',
+              'currency_code',
+              'currencyCode',
+              'default_currency',
+              'defaultCurrency',
+            ]),
+          ) ??
+          'INR',
       updatedAt: DateTime.tryParse(
-        (json['updated_at'] ?? json['updatedAt'] ?? '').toString(),
+        (_firstValue(json, const [
+                  'updated_at',
+                  'updatedAt',
+                  'created_at',
+                  'createdAt',
+                ]) ??
+                '')
+            .toString(),
       ),
     );
   }
@@ -190,18 +253,65 @@ class CustomerCartItem {
     required this.name,
     required this.quantity,
     required this.price,
+    this.total,
   });
 
   final String name;
   final int quantity;
   final double price;
+  final double? total;
+
+  double get lineTotal {
+    final explicitTotal = total;
+    if (explicitTotal != null) {
+      return explicitTotal;
+    }
+    return price * quantity;
+  }
 
   factory CustomerCartItem.fromJson(Map<String, dynamic> json) {
+    final quantity = _asInt(json['quantity'] ?? json['qty'] ?? 1);
+    final total = _nullableDouble(
+      _firstValue(json, const [
+        'total',
+        'line_total',
+        'lineTotal',
+        'amount_total',
+        'amountTotal',
+        'subtotal',
+      ]),
+    );
+    final unitPrice = _nullableDouble(
+      _firstValue(json, const [
+        'unit_price',
+        'unitPrice',
+        'price',
+        'amount',
+        'rate',
+      ]),
+    );
     return CustomerCartItem(
-      name: (json['name'] ?? json['menu_item_name'] ?? json['title'] ?? 'Item')
-          .toString(),
-      quantity: _asInt(json['quantity'] ?? json['qty'] ?? 1),
-      price: _asDouble(json['price'] ?? json['total']),
+      name:
+          _nullableText(
+            _firstValue(json, const [
+              'name',
+              'menu_item_name',
+              'menuItemName',
+              'item_name',
+              'itemName',
+              'product_name',
+              'productName',
+              'title',
+              'menu_item.name',
+              'menuItem.name',
+            ]),
+          ) ??
+          'Item',
+      quantity: quantity <= 0 ? 1 : quantity,
+      price:
+          unitPrice ??
+          (total != null && quantity > 0 ? total / quantity : total ?? 0),
+      total: total,
     );
   }
 }
@@ -257,6 +367,33 @@ List<CustomerCartItem> _cartItemsFrom(dynamic value) {
       .toList();
 }
 
+dynamic _firstValue(Map<String, dynamic> source, List<String> keys) {
+  for (final key in keys) {
+    final value = _deepValue(source, key);
+    if (value != null) {
+      return value;
+    }
+  }
+  return null;
+}
+
+dynamic _deepValue(Map<String, dynamic> source, String key) {
+  Object? current = source;
+  for (final part in key.split('.')) {
+    if (current is Map) {
+      current = current[part];
+    } else {
+      return null;
+    }
+  }
+  return current;
+}
+
+String? _nullableText(dynamic value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
+
 int _asInt(dynamic value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
@@ -266,4 +403,9 @@ int _asInt(dynamic value) {
 double _asDouble(dynamic value) {
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+double? _nullableDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
 }
