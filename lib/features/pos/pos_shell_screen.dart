@@ -21,6 +21,7 @@ import '../../repositories/printer_repository.dart';
 import '../../repositories/shift_repository.dart';
 import '../../services/fullscreen/fullscreen_service.dart';
 import '../../services/offline_order_sync_service.dart';
+import '../../services/report_browser_print_service.dart';
 import '../../services/smartpos_customer_display_service.dart';
 import '../../theme/app_theme.dart';
 import '../auth/auth_controller.dart';
@@ -364,7 +365,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         builder: (context) => _DailyReportDialog(
           report: report,
           money: _money,
-          onPrint: () => _printDailyReport(report),
+          onPrint: (type) => _printDailyReport(report, type: type),
         ),
       );
     } on Object catch (error) {
@@ -372,38 +373,54 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     }
   }
 
-  Future<void> _printDailyReport(PosDailyReport report) async {
-    final printerConfig = ref.read(printerConfigProvider).asData?.value;
-    if (printerConfig == null || !printerConfig.hasDeviceIdentity) {
-      _showSnack(
-        'Configure receipt printer before printing report.',
-        isError: true,
-      );
-      await _openPrinterSetup();
-      return;
-    }
+  Future<void> _printDailyReport(
+    PosDailyReport report, {
+    required String type,
+  }) async {
+    final configuredPrinter = ref.read(printerConfigProvider).asData?.value;
     try {
       var receipt = await ref
           .read(posOrderRepositoryProvider)
-          .fetchDailyReportPrintObject();
+          .fetchDailyReportPrintObject(type: type);
       if (!receipt.hasCommands) {
+        if (type != 'consolidated' && type != 'summary') {
+          throw const AppException(
+            message: 'Report API did not return printable data.',
+          );
+        }
         receipt = _dailyReportPrintObject(
           report,
           restaurantName: widget.data.restaurant?.name,
           branchName: widget.data.branch?.name,
           money: _money,
-          paper: printerConfig.paperWidth,
+          paper: configuredPrinter?.paperWidth,
         );
+      }
+      if (browserReportPrintSupported) {
+        await printReportHtmlInBrowser(
+          title: _reportLabelForType(type),
+          html: _reportHtmlFromPrintObject(receipt),
+        );
+        _showNotice('${_reportLabelForType(type)} opened for browser print.');
+        return;
+      }
+      if (configuredPrinter == null || !configuredPrinter.hasDeviceIdentity) {
+        _showSnack(
+          'Configure receipt printer before printing report.',
+          isError: true,
+        );
+        await _openPrinterSetup();
+        return;
       }
       final printedBytes = await ref
           .read(printerRepositoryProvider)
           .printReceipt(
             receipt,
             currencyCode: _currencyCode,
-            config: printerConfig,
+            config: configuredPrinter,
           );
       final suffix = printedBytes <= 0 ? '' : ' ($printedBytes bytes)';
-      _showNotice('Daily report printed$suffix.');
+      _showNotice('${_reportLabelForType(type)} printed$suffix.');
     } on Object catch (error) {
       _showSnack('Report print failed: ${_errorMessage(error)}', isError: true);
     }
@@ -6029,25 +6046,25 @@ class _DailyReportDialog extends StatefulWidget {
 
   final PosDailyReport report;
   final NumberFormat money;
-  final Future<void> Function() onPrint;
+  final Future<void> Function(String type) onPrint;
 
   @override
   State<_DailyReportDialog> createState() => _DailyReportDialogState();
 }
 
 class _DailyReportDialogState extends State<_DailyReportDialog> {
-  bool _printing = false;
+  String? _printingType;
 
-  Future<void> _print() async {
-    if (_printing) {
+  Future<void> _print(String type) async {
+    if (_printingType != null) {
       return;
     }
-    setState(() => _printing = true);
+    setState(() => _printingType = type);
     try {
-      await widget.onPrint();
+      await widget.onPrint(type);
     } finally {
       if (mounted) {
-        setState(() => _printing = false);
+        setState(() => _printingType = null);
       }
     }
   }
@@ -6055,96 +6072,439 @@ class _DailyReportDialogState extends State<_DailyReportDialog> {
   @override
   Widget build(BuildContext context) {
     final maxHeight = math.min(MediaQuery.sizeOf(context).height - 64, 780.0);
-    final orders = widget.report.recentOrders;
     return _ShiftDialogFrame(
-      width: 720,
+      width: 760,
       maxHeight: maxHeight,
-      title: 'Daily reports',
-      subtitle: DateFormat('dd MMM yyyy').format(DateTime.now()),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(26, 24, 26, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
+      title: 'Print day-end report',
+      subtitle: "Choose a report for today's sales at this branch.",
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final cardWidth = constraints.maxWidth < 620
+              ? constraints.maxWidth
+              : (constraints.maxWidth - 12) / 2;
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(26, 22, 26, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: _ReportMetricTile(
-                    label: 'Orders',
-                    value: widget.report.todayOrders.toString(),
-                    icon: Icons.receipt_long_outlined,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _ReportMetricTile(
-                    label: 'Revenue',
-                    value: widget.money.format(widget.report.todayRevenue),
-                    icon: Icons.payments_outlined,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _ReportMetricTile(
-                    label: 'Pending',
-                    value: widget.report.todayPending.toString(),
-                    icon: Icons.pending_actions_outlined,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const _ShiftSectionLabel('RECENT ORDERS'),
-            const SizedBox(height: 10),
-            if (orders.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: const Text(
-                  'No recent orders returned.',
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              )
-            else
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Column(
+                Row(
                   children: [
-                    for (var index = 0; index < orders.length; index += 1)
-                      _DailyReportOrderRow(
-                        order: orders[index],
-                        money: widget.money,
-                        showDivider: index < orders.length - 1,
+                    Expanded(
+                      child: _ReportMetricTile(
+                        label: 'Orders',
+                        value: widget.report.todayOrders.toString(),
+                        icon: Icons.receipt_long_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ReportMetricTile(
+                        label: 'Revenue',
+                        value: widget.money.format(widget.report.todayRevenue),
+                        icon: Icons.payments_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ReportMetricTile(
+                        label: 'Pending',
+                        value: widget.report.todayPending.toString(),
+                        icon: Icons.pending_actions_outlined,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    const _ReportInfoChip(
+                      icon: Icons.calendar_today_outlined,
+                      label: 'Today',
+                    ),
+                    const _ReportInfoChip(
+                      icon: Icons.storefront_outlined,
+                      label: 'Main',
+                    ),
+                    _ReportInfoChip(
+                      icon: browserReportPrintSupported
+                          ? Icons.check_circle_outline
+                          : Icons.print_outlined,
+                      label: browserReportPrintSupported
+                          ? 'Browser print available'
+                          : 'Receipt printer',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    for (final reportType in _dayEndReportTypes)
+                      SizedBox(
+                        width: cardWidth,
+                        child: _DayEndReportCard(
+                          reportType: reportType,
+                          printing: _printingType == reportType.type,
+                          disabled:
+                              _printingType != null &&
+                              _printingType != reportType.type,
+                          onPrint: () => _print(reportType.type),
+                        ),
                       ),
                   ],
                 ),
-              ),
-          ],
-        ),
+              ],
+            ),
+          );
+        },
       ),
       footer: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           _ShiftFooterButton(
             label: 'Close',
-            onPressed: _printing ? null : () => Navigator.of(context).pop(),
+            onPressed: _printingType == null
+                ? () => Navigator.of(context).pop()
+                : null,
           ),
-          const SizedBox(width: 8),
-          _ShiftFooterButton(
-            label: _printing ? 'Printing...' : 'Print',
-            primary: true,
-            onPressed: _printing ? null : _print,
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportInfoChip extends StatelessWidget {
+  const _ReportInfoChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFF4F46E5)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF475569),
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DayEndReportType {
+  const _DayEndReportType({
+    required this.type,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.color,
+  });
+
+  final String type;
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color color;
+}
+
+const _dayEndReportTypes = [
+  _DayEndReportType(
+    type: 'summary',
+    title: 'Sales summary',
+    description:
+        'Orders, items sold, average ticket, tax, tips, and discounts.',
+    icon: Icons.grid_view_rounded,
+    color: Color(0xFF4F46E5),
+  ),
+  _DayEndReportType(
+    type: 'consolidated',
+    title: 'Terminal bill consolidated',
+    description: 'Payment method totals with grand total for the business day.',
+    icon: Icons.credit_card_rounded,
+    color: Color(0xFF10B981),
+  ),
+  _DayEndReportType(
+    type: 'item',
+    title: 'Item wise report',
+    description:
+        'Item codes, quantities sold, and sales amount in a compact list.',
+    icon: Icons.format_list_numbered_rounded,
+    color: Color(0xFF8B5CF6),
+  ),
+  _DayEndReportType(
+    type: 'category',
+    title: 'Category wise',
+    description: 'Quantity and sales total broken down by menu category.',
+    icon: Icons.folder_copy_outlined,
+    color: Color(0xFF3B82F6),
+  ),
+  _DayEndReportType(
+    type: 'order_type',
+    title: 'Order type',
+    description: 'Dine-in, takeaway, and delivery sales with order counts.',
+    icon: Icons.restaurant_menu_rounded,
+    color: Color(0xFFF59E0B),
+  ),
+  _DayEndReportType(
+    type: 'channel',
+    title: 'Sales channel',
+    description: 'POS, kiosk, online, and other order channel totals.',
+    icon: Icons.storefront_outlined,
+    color: Color(0xFF06B6D4),
+  ),
+  _DayEndReportType(
+    type: 'tax',
+    title: 'Tax report',
+    description: 'Taxable sales, tax collected, and tax rate breakdown.',
+    icon: Icons.receipt_long_outlined,
+    color: Color(0xFFEF4444),
+  ),
+];
+
+String _reportLabelForType(String type) {
+  for (final reportType in _dayEndReportTypes) {
+    if (reportType.type == type) {
+      return reportType.title;
+    }
+  }
+  return 'Report';
+}
+
+String _reportHtmlFromPrintObject(ReceiptPrintObject receipt) {
+  final documentHtml = _reportHtmlFromDocument(receipt.raw['document']);
+  if (documentHtml.trim().isNotEmpty) {
+    return documentHtml;
+  }
+  final buffer = StringBuffer();
+  for (final command in receipt.commands) {
+    final type = _stringValue(command['type']).toLowerCase();
+    switch (type) {
+      case 'init':
+      case 'cut':
+      case 'feed':
+      case 'space':
+      case 'blank':
+        break;
+      case 'divider':
+      case 'separator':
+        buffer.writeln('<div class="line"></div>');
+        break;
+      case 'row':
+        buffer.writeln(
+          '<div class="row"><span>${_escapeReportHtml(_stringValue(command['left'] ?? command['label']))}</span><span>${_escapeReportHtml(_stringValue(command['right'] ?? command['value'] ?? command['amount']))}</span></div>',
+        );
+        break;
+      case 'columns':
+      case 'table':
+        final columns = command['columns'];
+        if (columns is List && columns.isNotEmpty) {
+          final cells = columns.map((cell) {
+            final text = cell is Map
+                ? _stringValue(cell['text'] ?? cell['value'])
+                : _stringValue(cell);
+            return '<span>${_escapeReportHtml(text)}</span>';
+          }).join();
+          buffer.writeln('<div class="row">$cells</div>');
+        }
+        break;
+      default:
+        final text = _stringValue(
+          command['text'] ?? command['value'] ?? command['content'],
+        );
+        if (text.trim().isEmpty) {
+          break;
+        }
+        final align = _stringValue(command['align']).toLowerCase();
+        final style = _stringValue(command['style']).toLowerCase();
+        final classes = [
+          if (align == 'center') 'center',
+          if (align == 'right') 'right',
+          if (style.contains('bold')) 'bold',
+          if (style.contains('title') || style.contains('large')) 'large',
+        ].join(' ');
+        buffer.writeln(
+          '<div class="$classes">${_escapeReportHtml(text)}</div>',
+        );
+    }
+  }
+  return buffer.toString();
+}
+
+String _reportHtmlFromDocument(Object? value) {
+  if (value is! List) {
+    return '';
+  }
+  final buffer = StringBuffer();
+  for (final item in value) {
+    if (item == null) {
+      continue;
+    }
+    if (item is Map) {
+      final map = Map<String, dynamic>.from(item);
+      final html = _nullableString(map['html'] ?? map['content_html']);
+      if (html != null) {
+        buffer.writeln(html);
+        continue;
+      }
+      final text = _nullableString(
+        map['text'] ?? map['content'] ?? map['value'],
+      );
+      if (text != null) {
+        buffer.writeln('<pre>${_escapeReportHtml(text)}</pre>');
+      }
+      continue;
+    }
+    buffer.writeln('<pre>${_escapeReportHtml(item)}</pre>');
+  }
+  return buffer.toString();
+}
+
+String _escapeReportHtml(Object? value) {
+  return value
+      .toString()
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+}
+
+class _DayEndReportCard extends StatelessWidget {
+  const _DayEndReportCard({
+    required this.reportType,
+    required this.printing,
+    required this.disabled,
+    required this.onPrint,
+  });
+
+  final _DayEndReportType reportType;
+  final bool printing;
+  final bool disabled;
+  final VoidCallback onPrint;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = reportType.color;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 168),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: printing ? color : const Color(0xFFE2E8F0),
+          width: printing ? 1.4 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(reportType.icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reportType.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontSize: 17,
+                        height: 1.18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      reportType.description,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 13,
+                        height: 1.28,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            height: 42,
+            child: OutlinedButton.icon(
+              onPressed: disabled || printing ? null : onPrint,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF111827),
+                backgroundColor: printing
+                    ? color.withValues(alpha: 0.08)
+                    : const Color(0xFFFAFAFA),
+                side: BorderSide(
+                  color: printing ? color : const Color(0xFFE2E8F0),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: printing
+                  ? SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: color,
+                      ),
+                    )
+                  : Icon(
+                      browserReportPrintSupported
+                          ? Icons.desktop_windows_outlined
+                          : Icons.print_outlined,
+                      size: 18,
+                    ),
+              label: Text(
+                printing
+                    ? 'Preparing...'
+                    : browserReportPrintSupported
+                    ? 'Browser print'
+                    : 'Print',
+              ),
+            ),
           ),
         ],
       ),
@@ -6198,109 +6558,6 @@ class _ReportMetricTile extends StatelessWidget {
               color: Color(0xFF64748B),
               fontSize: 12,
               fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DailyReportOrderRow extends StatelessWidget {
-  const _DailyReportOrderRow({
-    required this.order,
-    required this.money,
-    required this.showDivider,
-  });
-
-  final PosDailyReportOrder order;
-  final NumberFormat money;
-  final bool showDivider;
-
-  @override
-  Widget build(BuildContext context) {
-    final createdAt = order.createdAt?.toLocal();
-    final timeText = createdAt == null
-        ? ''
-        : DateFormat('h:mm a').format(createdAt);
-    final metaParts = [
-      if (order.token != null) 'Token ${order.token}',
-      if (order.type != null) _orderTypeLabel(order.type!),
-      if (timeText.isNotEmpty) timeText,
-    ];
-    final statusParts = [
-      if (order.status != null) order.status!,
-      if (order.paymentStatus != null) order.paymentStatus!,
-      if (order.paymentMethod != null) order.paymentMethod!,
-    ];
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        border: showDivider
-            ? const Border(bottom: BorderSide(color: Color(0xFFE2E8F0)))
-            : null,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  order.displayNumber,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  [
-                    if (order.customerName != null) order.customerName!,
-                    if (metaParts.isNotEmpty) metaParts.join(' - '),
-                  ].join(' - '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 150,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  money.format(order.total ?? 0),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  statusParts.map(_humanizePaymentLabel).join(' - '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
             ),
           ),
         ],

@@ -81,9 +81,11 @@ class PosOrderRepository {
     }
   }
 
-  Future<ReceiptPrintObject> fetchDailyReportPrintObject() async {
+  Future<ReceiptPrintObject> fetchDailyReportPrintObject({
+    String type = 'consolidated',
+  }) async {
     try {
-      return await _api.fetchDailyReportPrintObject();
+      return await _api.fetchDailyReportPrintObject(type: type);
     } on DioException catch (error) {
       throw AppException.fromDio(error);
     }

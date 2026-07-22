@@ -224,10 +224,12 @@ class PosOrderApiService {
     throw lastRouteError!;
   }
 
-  Future<ReceiptPrintObject> fetchDailyReportPrintObject() async {
+  Future<ReceiptPrintObject> fetchDailyReportPrintObject({
+    String type = 'consolidated',
+  }) async {
     final response = await _dio.get<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/reports/thermal-print',
-      queryParameters: const <String, dynamic>{'type': 'consolidated'},
+      queryParameters: <String, dynamic>{'type': type},
     );
     return ReceiptPrintObject.fromResponse(unwrapDataMap(response.data));
   }
