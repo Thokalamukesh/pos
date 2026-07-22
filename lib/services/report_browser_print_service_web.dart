@@ -33,11 +33,11 @@ String _printDocument({required String title, required String body}) {
       margin: 0;
       color: #111827;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-      line-height: 1.35;
+      font-size: 11px;
+      line-height: 1.28;
     }
     .receipt {
-      width: 72mm;
+      width: 80mm;
       max-width: 100%;
       margin: 0 auto;
     }
@@ -47,21 +47,20 @@ String _printDocument({required String title, required String body}) {
     .large { font-size: 16px; font-weight: 800; }
     .line { border-top: 1px dashed #111827; margin: 8px 0; }
     .row {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
-      justify-content: space-between;
       align-items: flex-start;
       break-inside: avoid;
     }
-    .row span:first-child { overflow-wrap: anywhere; }
+    .row span:first-child { overflow-wrap: break-word; }
     .row span:last-child {
-      flex: 0 0 auto;
       max-width: 34mm;
       text-align: right;
     }
     pre {
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
+      white-space: pre;
+      overflow-wrap: normal;
       font-family: inherit;
       margin: 0;
     }

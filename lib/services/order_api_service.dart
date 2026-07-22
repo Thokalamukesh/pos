@@ -200,6 +200,7 @@ class PosOrderApiService {
   }
 
   Future<PosDailyReport> fetchDailyReport() async {
+    final queryParameters = _todayReportQueryParameters();
     final paths = const [
       '/pos/recent-orders',
       '/pos/reports/daily',
@@ -211,8 +212,12 @@ class PosOrderApiService {
       try {
         final response = await _dio.get<Map<String, dynamic>>(
           '${AppConfig.apiPrefix}$path',
+          queryParameters: queryParameters,
         );
-        return PosDailyReport.fromResponse(unwrapDataMap(response.data));
+        return _filterDailyReportForDate(
+          PosDailyReport.fromResponse(unwrapDataMap(response.data)),
+          DateTime.now(),
+        );
       } on DioException catch (error) {
         final status = error.response?.statusCode;
         if (status != 404 && status != 405) {
@@ -229,8 +234,46 @@ class PosOrderApiService {
   }) async {
     final response = await _dio.get<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/reports/thermal-print',
-      queryParameters: <String, dynamic>{'type': type},
+      queryParameters: _todayReportQueryParameters(type: type),
     );
     return ReceiptPrintObject.fromResponse(unwrapDataMap(response.data));
   }
+}
+
+Map<String, dynamic> _todayReportQueryParameters({String? type}) {
+  final today = _yyyyMmDd(DateTime.now());
+  return <String, dynamic>{
+    if (type != null) 'type': type,
+    'date_from': today,
+    'date_to': today,
+  };
+}
+
+String _yyyyMmDd(DateTime value) {
+  final local = value.toLocal();
+  final year = local.year.toString().padLeft(4, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+PosDailyReport _filterDailyReportForDate(PosDailyReport report, DateTime date) {
+  final filteredOrders = report.recentOrders.where((order) {
+    final createdAt = order.createdAt;
+    return createdAt == null || _isSameLocalDate(createdAt, date);
+  }).toList();
+  if (filteredOrders.length == report.recentOrders.length) {
+    return report;
+  }
+  return PosDailyReport(
+    raw: report.raw,
+    summary: report.summary,
+    recentOrders: filteredOrders,
+  );
+}
+
+bool _isSameLocalDate(DateTime first, DateTime second) {
+  final a = first.toLocal();
+  final b = second.toLocal();
+  return a.year == b.year && a.month == b.month && a.day == b.day;
 }
