@@ -22,6 +22,14 @@ class PosLanguage {
 }
 
 const defaultPosLanguage = PosLanguage(code: 'en', label: 'English');
+const defaultPosLanguages = [
+  defaultPosLanguage,
+  PosLanguage(code: 'te', label: 'Telugu', nativeLabel: 'తెలుగు'),
+  PosLanguage(code: 'hi', label: 'Hindi', nativeLabel: 'हिन्दी'),
+  PosLanguage(code: 'ta', label: 'Tamil', nativeLabel: 'தமிழ்'),
+  PosLanguage(code: 'kn', label: 'Kannada', nativeLabel: 'ಕನ್ನಡ'),
+  PosLanguage(code: 'ml', label: 'Malayalam', nativeLabel: 'മലയാളം'),
+];
 
 final appThemeModeProvider = StateProvider<ThemeMode>((ref) {
   return ThemeMode.light;

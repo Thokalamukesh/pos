@@ -8739,14 +8739,14 @@ class _HeldTicketsSheet extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 640,
-          maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 820),
+          maxWidth: 960,
+          maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 980),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(24, 22, 18, 18),
+              padding: const EdgeInsets.fromLTRB(28, 28, 24, 22),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
@@ -8762,7 +8762,7 @@ class _HeldTicketsSheet extends StatelessWidget {
                           'Orders',
                           style: TextStyle(
                             color: Color(0xFF0F172A),
-                            fontSize: 26,
+                            fontSize: 34,
                             height: 1.05,
                             fontWeight: FontWeight.w900,
                           ),
@@ -8772,7 +8772,7 @@ class _HeldTicketsSheet extends StatelessWidget {
                           'Held tickets and branch activity',
                           style: TextStyle(
                             color: Color(0xFF64748B),
-                            fontSize: 17,
+                            fontSize: 24,
                             height: 1.1,
                             fontWeight: FontWeight.w400,
                           ),
@@ -8792,6 +8792,62 @@ class _HeldTicketsSheet extends StatelessWidget {
                 ],
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 16, 28, 0),
+              child: _OrdersModeTabs(heldCount: tickets.length),
+            ),
+            const Divider(height: 24, color: Color(0xFFE5E7EB)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 0, 28, 14),
+              child: Column(
+                children: [
+                  const Row(
+                    children: [
+                      Expanded(
+                        child: _OrdersFilterChip(label: 'Today', active: true),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(child: _OrdersFilterChip(label: 'Unpaid')),
+                      SizedBox(width: 12),
+                      Expanded(child: _OrdersFilterChip(label: '7 days')),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    readOnly: true,
+                    decoration: InputDecoration(
+                      hintText: 'Search order #, customer, table...',
+                      hintStyle: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        size: 30,
+                        color: Color(0xFF94A3B8),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 18,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _OrdersSummaryRow(tickets: tickets, money: money),
+                ],
+              ),
+            ),
             Expanded(
               child: tickets.isEmpty
                   ? const Center(
@@ -8807,10 +8863,10 @@ class _HeldTicketsSheet extends StatelessWidget {
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                      padding: const EdgeInsets.fromLTRB(22, 8, 22, 22),
                       itemCount: tickets.length,
                       separatorBuilder: (context, index) =>
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 22),
                       itemBuilder: (context, index) {
                         final ticket = tickets[index];
                         return _HeldTicketCard(ticket: ticket, money: money);
@@ -8824,9 +8880,9 @@ class _HeldTicketsSheet extends StatelessWidget {
                 color: Color(0xFFFFFFFF),
                 border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
               ),
-              child: const Text(
-                'F4 open \u00B7 F2 park \u00B7 Shift+Enter charge',
-                style: TextStyle(
+              child: Text(
+                '1-${tickets.length} of ${tickets.length}',
+                style: const TextStyle(
                   color: Color(0xFF94A3B8),
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
@@ -8835,6 +8891,241 @@ class _HeldTicketsSheet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _OrdersModeTabs extends StatelessWidget {
+  const _OrdersModeTabs({required this.heldCount});
+
+  final int heldCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 90,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _OrdersModeTab(
+              icon: Icons.pause_circle_outline,
+              label: 'Held',
+              count: heldCount,
+              active: false,
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: _OrdersModeTab(
+              icon: Icons.confirmation_number_outlined,
+              label: 'Orders',
+              active: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrdersModeTab extends StatelessWidget {
+  const _OrdersModeTab({
+    required this.icon,
+    required this.label,
+    required this.active,
+    this.count,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+  final int? count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: active ? Colors.white : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: active
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: const Color(0xFF0F172A), size: 28),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: TextStyle(
+              color: active ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          if (count != null) ...[
+            const SizedBox(width: 12),
+            Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF59E0B),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                count.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OrdersFilterChip extends StatelessWidget {
+  const _OrdersFilterChip({required this.label, this.active = false});
+
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: active ? Colors.white : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: active
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ]
+            : null,
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF0F172A),
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _OrdersSummaryRow extends StatelessWidget {
+  const _OrdersSummaryRow({required this.tickets, required this.money});
+
+  final List<_HeldTicket> tickets;
+  final NumberFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = tickets.fold<double>(0, (sum, ticket) => sum + ticket.total);
+    return Row(
+      children: [
+        Expanded(
+          child: _OrdersSummaryTile(
+            label: 'ORDERS',
+            value: tickets.length.toString(),
+            background: const Color(0xFFF8FAFC),
+            valueColor: const Color(0xFF0F172A),
+          ),
+        ),
+        const SizedBox(width: 14),
+        const Expanded(
+          child: _OrdersSummaryTile(
+            label: 'UNPAID',
+            value: '0',
+            background: Color(0xFFFFFBEB),
+            valueColor: Color(0xFF7C2D12),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: _OrdersSummaryTile(
+            label: 'PAID TOTAL',
+            value: money.format(total),
+            background: const Color(0xFFECFDF5),
+            valueColor: const Color(0xFF047857),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OrdersSummaryTile extends StatelessWidget {
+  const _OrdersSummaryTile({
+    required this.label,
+    required this.value,
+    required this.background,
+    required this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final Color background;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 82,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF94A3B8),
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -8850,125 +9141,340 @@ class _HeldTicketCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final customer = ticket.customerName?.trim();
     final note = ticket.orderNotes?.trim();
+    final firstLine = ticket.lines.isEmpty ? null : ticket.lines.first;
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(24),
       onTap: () => Navigator.of(context).pop(ticket),
       child: Ink(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(26, 24, 26, 26),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFF59E0B), width: 1.4),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.receipt_long_outlined,
-                color: Color(0xFF475569),
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _OrderTokenBadge(token: ticket.token),
+                const SizedBox(width: 22),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          'Ticket ${ticket.token}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF0F172A),
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'ORD-${ticket.createdAt.year}${ticket.token.toString().padLeft(4, '0')}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF0F172A),
+                                fontSize: 26,
+                                letterSpacing: 1.1,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                           ),
-                        ),
+                          Text(
+                            money.format(ticket.total),
+                            style: const TextStyle(
+                              color: Color(0xFF059669),
+                              fontSize: 28,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        money.format(ticket.total),
-                        style: const TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.restaurant_menu,
+                            color: Color(0xFF64748B),
+                            size: 22,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${_orderTypeLabel(ticket.orderType)}${ticket.table == null ? '' : ' · ${ticket.table!.name}'} · Pos',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF64748B),
+                                fontSize: 21,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const _OrderStatusChip(
+                            label: 'PENDING',
+                            background: Color(0xFFFFFBEB),
+                            border: Color(0xFFFDE68A),
+                            text: Color(0xFF92400E),
+                          ),
+                          const _OrderStatusChip(
+                            label: 'PAID',
+                            background: Color(0xFFD1FAE5),
+                            border: Color(0xFF86EFAC),
+                            text: Color(0xFF047857),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.schedule,
+                                size: 20,
+                                color: Color(0xFF94A3B8),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                DateFormat('HH:mm').format(ticket.createdAt),
+                                style: const TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              height: 72,
+              padding: const EdgeInsets.symmetric(horizontal: 22),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
                   Text(
-                    '${ticket.itemCount} items \u00B7 ${_orderTypeLabel(ticket.orderType)}',
+                    firstLine == null
+                        ? '${ticket.itemCount}x'
+                        : '${firstLine.quantity}x',
                     style: const TextStyle(
-                      color: Color(0xFF64748B),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF94A3B8),
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
-                  if (customer != null && customer.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      customer,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      firstLine?.item.name ?? 'Held ticket',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Color(0xFF334155),
-                        fontSize: 14,
+                        color: Color(0xFF0F172A),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ],
-                  if (note != null && note.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      note,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF64748B),
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      onPressed: () => Navigator.of(context).pop(ticket),
-                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                      label: const Text('Resume'),
+                  ),
+                  Text(
+                    money.format(firstLine?.total ?? ticket.total),
+                    style: const TextStyle(
+                      color: Color(0xFF475569),
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                 ],
               ),
             ),
+            if ((customer != null && customer.isNotEmpty) ||
+                (note != null && note.isNotEmpty)) ...[
+              const SizedBox(height: 10),
+              if (customer != null && customer.isNotEmpty)
+                Text(
+                  customer,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF334155),
+                    fontSize: 14,
+                  ),
+                ),
+              if (note != null && note.isNotEmpty)
+                Text(
+                  note,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 13,
+                  ),
+                ),
+            ],
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 64,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        elevation: 4,
+                        shadowColor: const Color(
+                          0xFF2563EB,
+                        ).withValues(alpha: 0.24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(ticket),
+                      icon: const Icon(Icons.check, size: 26),
+                      label: const Text('Accept'),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: SizedBox(
+                    height: 64,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF4F46E5),
+                        foregroundColor: Colors.white,
+                        elevation: 4,
+                        shadowColor: const Color(
+                          0xFF4F46E5,
+                        ).withValues(alpha: 0.24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(ticket),
+                      icon: const Icon(Icons.refresh, size: 26),
+                      label: const Text('Resume'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrderTokenBadge extends StatelessWidget {
+  const _OrderTokenBadge({required this.token});
+
+  final int token;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 96,
+      height: 96,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF5B3CF3), Color(0xFF7C3AED)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const Positioned(
+            top: 23,
+            child: Text(
+              'ORDERS.TOK',
+              maxLines: 1,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 16,
+            child: Text(
+              token.toString(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 34,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderStatusChip extends StatelessWidget {
+  const _OrderStatusChip({
+    required this.label,
+    required this.background,
+    required this.border,
+    required this.text,
+  });
+
+  final String label;
+  final Color background;
+  final Color border;
+  final Color text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: text,
+          fontSize: 17,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );
@@ -10078,7 +10584,7 @@ AsyncValue<List<PosLanguage>> _languagesWithBootstrap(
   List<PosLanguage> bootstrapLanguages,
 ) {
   final merged = _mergePosLanguages([
-    ...(apiLanguages.asData?.value ?? const [defaultPosLanguage]),
+    ...(apiLanguages.asData?.value ?? defaultPosLanguages),
     ...bootstrapLanguages,
   ]);
   if (merged.length > 1 || apiLanguages.hasValue) {
@@ -10161,7 +10667,7 @@ List<PosLanguage> _languagesFromTranslations(Object? value) {
 
 List<PosLanguage> _mergePosLanguages(List<PosLanguage> languages) {
   final byCode = <String, PosLanguage>{};
-  for (final language in [defaultPosLanguage, ...languages]) {
+  for (final language in [...defaultPosLanguages, ...languages]) {
     final code = language.code.trim();
     if (code.isNotEmpty) {
       byCode[code.toLowerCase()] = language;

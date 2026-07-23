@@ -14,7 +14,7 @@ final posLanguagesProvider = FutureProvider<List<PosLanguage>>((ref) async {
   final languages = await ref
       .watch(languageApiServiceProvider)
       .fetchLanguages();
-  return languages.isEmpty ? const [defaultPosLanguage] : languages;
+  return languages.isEmpty ? defaultPosLanguages : languages;
 });
 
 class LanguageApiService {
@@ -43,7 +43,7 @@ class LanguageApiService {
         }
       }
     }
-    return const [defaultPosLanguage];
+    return defaultPosLanguages;
   }
 }
 
@@ -58,8 +58,22 @@ List<PosLanguage> _languagesFromResponse(Object? responseData) {
     return const [];
   }
   final data = unwrapDataMap(responseData);
+  final settings = data['settings'] is Map
+      ? Map<String, dynamic>.from(data['settings'] as Map)
+      : const <String, dynamic>{};
   final value =
-      data['languages'] ?? data['locales'] ?? data['data'] ?? data['items'];
+      data['languages'] ??
+      data['locales'] ??
+      data['pos_languages'] ??
+      data['posLanguages'] ??
+      data['available_languages'] ??
+      data['availableLanguages'] ??
+      data['supported_languages'] ??
+      data['supportedLanguages'] ??
+      settings['languages'] ??
+      settings['locales'] ??
+      data['data'] ??
+      data['items'];
   if (value is List) {
     return value.map(_languageFromValue).whereType<PosLanguage>().toList();
   }
@@ -92,10 +106,13 @@ PosLanguage? _languageFromValue(Object? value) {
       'language_code',
       'languageCode',
       'slug',
-      'id',
     ]);
     if (code.isEmpty) {
-      return null;
+      final id = _firstString(map, const ['id']);
+      if (!_looksLikeLanguageCode(id)) {
+        return null;
+      }
+      return PosLanguage(code: id, label: _languageName(id));
     }
     final label = _firstString(map, const [
       'name',
@@ -121,13 +138,17 @@ PosLanguage? _languageFromValue(Object? value) {
 
 List<PosLanguage> _dedupeLanguages(List<PosLanguage> languages) {
   final byCode = <String, PosLanguage>{};
-  for (final language in [defaultPosLanguage, ...languages]) {
+  for (final language in [...defaultPosLanguages, ...languages]) {
     final code = language.code.trim();
     if (code.isNotEmpty) {
-      byCode[code] = language;
+      byCode[code.toLowerCase()] = language;
     }
   }
   return byCode.values.toList();
+}
+
+bool _looksLikeLanguageCode(String value) {
+  return RegExp(r'^[a-zA-Z]{2,3}([_-][a-zA-Z]{2})?$').hasMatch(value.trim());
 }
 
 String _firstString(Map<String, dynamic> map, List<String> keys) {
