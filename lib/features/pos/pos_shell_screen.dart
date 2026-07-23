@@ -22,6 +22,7 @@ import '../../repositories/printer_repository.dart';
 import '../../repositories/shift_repository.dart';
 import '../../services/fullscreen/fullscreen_service.dart';
 import '../../services/offline_order_sync_service.dart';
+import '../../services/pos_beep_sound_service.dart';
 import '../../services/report_browser_print_service.dart';
 import '../../services/smartpos_customer_display_service.dart';
 import '../../theme/app_theme.dart';
@@ -719,6 +720,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       }
       _expandedCartLineKey = _cartLineIdentity(expandedLine);
     });
+    PosBeepSoundService.playAddToCart();
     _queueDisplaySync();
   }
 
@@ -3105,18 +3107,9 @@ class _MenuImage extends StatelessWidget {
   }
 }
 
-final Set<String> _failedNetworkImageUrls = <String>{};
-
 bool _shouldLoadPosNetworkImage(String url) {
-  if (!kIsWeb) {
-    return true;
-  }
-  final uri = Uri.tryParse(url);
-  if (uri == null) {
-    return false;
-  }
-  return !uri.path.contains('/menu-categories/') &&
-      !uri.path.contains('/menu-items/');
+  final uri = Uri.tryParse(url.trim());
+  return uri != null && uri.hasScheme;
 }
 
 class _PosNetworkImage extends StatelessWidget {
@@ -3138,8 +3131,7 @@ class _PosNetworkImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_failedNetworkImageUrls.contains(url) ||
-        !_shouldLoadPosNetworkImage(url)) {
+    if (!_shouldLoadPosNetworkImage(url)) {
       return fallback;
     }
     return Image.network(
@@ -3157,7 +3149,6 @@ class _PosNetworkImage extends StatelessWidget {
             }
           : null,
       errorBuilder: (context, error, stackTrace) {
-        _failedNetworkImageUrls.add(url);
         return fallback;
       },
     );
@@ -6113,17 +6104,24 @@ class _DailyReportDialogState extends State<_DailyReportDialog> {
       showFooter: false,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final cardWidth = constraints.maxWidth < 620
-              ? constraints.maxWidth
-              : (constraints.maxWidth - 12) / 2;
+          const horizontalPadding = 52.0;
+          const reportGap = 12.0;
+          final contentWidth = math.max(
+            0.0,
+            constraints.maxWidth - horizontalPadding,
+          );
+          final useTwoColumns = contentWidth >= 560;
+          final cardWidth = useTwoColumns
+              ? (contentWidth - reportGap) / 2
+              : contentWidth;
           return SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(26, 22, 26, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+                  spacing: reportGap,
+                  runSpacing: reportGap,
                   children: [
                     for (final reportType in _dayEndReportTypes)
                       SizedBox(
@@ -6221,7 +6219,7 @@ const _dayEndReportTypes = [
   ),
   _DayEndReportType(
     type: 'consolidated',
-    title: 'Terminal bill consolidated',
+    title: 'Terminal bill',
     description: 'Payment method totals with grand total for the business day.',
     icon: Icons.credit_card_rounded,
     color: Color(0xFF10B981),
@@ -6236,7 +6234,7 @@ const _dayEndReportTypes = [
   ),
   _DayEndReportType(
     type: 'category',
-    title: 'Category wise',
+    title: 'Category report',
     description: 'Quantity and sales total broken down by menu category.',
     icon: Icons.folder_copy_outlined,
     color: Color(0xFF3B82F6),
@@ -9981,16 +9979,25 @@ String? _imageUrlFromValue(Object? value) {
 }
 
 String? _normalizeImageUrl(String? raw) {
-  if (raw == null || raw.isEmpty) {
+  final value = raw?.trim();
+  if (value == null || value.isEmpty) {
     return null;
   }
-  final uri = Uri.tryParse(raw);
+  if (value.startsWith('//')) {
+    return 'https:$value';
+  }
+  final uri = Uri.tryParse(value);
   if (uri != null && uri.hasScheme) {
-    return raw;
+    return value;
   }
   final base = AppConfig.baseUrl.endsWith('/')
       ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1)
       : AppConfig.baseUrl;
-  final path = raw.startsWith('/') ? raw : '/$raw';
+  var path = value.startsWith('/') ? value : '/$value';
+  final lowerPath = path.toLowerCase();
+  if (lowerPath.startsWith('/menu-items/') ||
+      lowerPath.startsWith('/menu-categories/')) {
+    path = '/storage$path';
+  }
   return '$base$path';
 }
