@@ -22,6 +22,22 @@ class PosOrderRepository {
     }
   }
 
+  Future<PosOrderResult> parkOrder(CreatePosOrderRequest request) async {
+    try {
+      return await _api.parkOrder(request);
+    } on DioException catch (error) {
+      throw AppException.fromDio(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchOrder(int orderId) async {
+    try {
+      return await _api.fetchOrder(orderId);
+    } on DioException catch (error) {
+      throw AppException.fromDio(error);
+    }
+  }
+
   Future<ReceiptPrintObject> fetchReceipt(int orderId) async {
     try {
       return await _api.fetchReceipt(orderId);
@@ -30,9 +46,13 @@ class PosOrderRepository {
     }
   }
 
-  Future<PosOrderPaymentResult> payOrder(int orderId, {String? method}) async {
+  Future<PosOrderPaymentResult> payOrder(
+    int orderId, {
+    String? method,
+    PosRegisterPayment? payment,
+  }) async {
     try {
-      return await _api.payOrder(orderId, method: method);
+      return await _api.payOrder(orderId, method: method, payment: payment);
     } on DioException catch (error) {
       throw AppException.fromDio(error);
     }

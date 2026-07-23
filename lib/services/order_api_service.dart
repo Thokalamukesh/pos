@@ -30,6 +30,21 @@ class PosOrderApiService {
     return PosOrderResult.fromResponse(unwrapDataMap(response.data));
   }
 
+  Future<PosOrderResult> parkOrder(CreatePosOrderRequest request) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '${AppConfig.apiPrefix}/pos/orders/park',
+      data: request.toJson(),
+    );
+    return PosOrderResult.fromResponse(unwrapDataMap(response.data));
+  }
+
+  Future<Map<String, dynamic>> fetchOrder(int orderId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '${AppConfig.apiPrefix}/pos/orders/$orderId',
+    );
+    return unwrapDataMap(response.data);
+  }
+
   Future<ReceiptPrintObject> fetchReceipt(int orderId) async {
     final response = await _dio.get<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/orders/$orderId/receipt',
@@ -37,13 +52,18 @@ class PosOrderApiService {
     return ReceiptPrintObject.fromResponse(unwrapDataMap(response.data));
   }
 
-  Future<PosOrderPaymentResult> payOrder(int orderId, {String? method}) async {
+  Future<PosOrderPaymentResult> payOrder(
+    int orderId, {
+    String? method,
+    PosRegisterPayment? payment,
+  }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/orders/$orderId/pay',
-      data: method == null
+      data: payment == null && method == null
           ? null
           : <String, dynamic>{
-              'pos_register_payment': <String, dynamic>{'method': method},
+              'pos_register_payment':
+                  payment?.toJson() ?? <String, dynamic>{'method': method},
             },
     );
     return PosOrderPaymentResult.fromResponse(unwrapDataMap(response.data));

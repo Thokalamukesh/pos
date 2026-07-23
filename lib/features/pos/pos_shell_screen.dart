@@ -140,6 +140,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   String? _orderNotes;
   String? _expandedCartLineKey;
   String? _selectedProductId;
+  int? _resumedServerOrderId;
   _PosTable? _selectedTable;
   _Discount? _discount;
   bool _orderTypeExpanded = false;
@@ -825,21 +826,31 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     if (_cart.isEmpty) {
       return;
     }
-    setState(() {
-      _heldTickets.add(
-        _HeldTicket(
-          token: _nextHeldToken++,
-          lines: List<_CartLine>.of(_cart),
-          orderType: _orderType,
-          customerName: _customerName,
-          customerPhone: _customerPhone,
-          customerAddress: _customerAddress,
-          orderNotes: _orderNotes,
-          table: _selectedTable,
-          discount: _discount,
-          createdAt: DateTime.now(),
-        ),
+    unawaited(_parkCurrentOrder());
+  }
+
+  Future<void> _parkCurrentOrder() async {
+    if (_cart.isEmpty) {
+      return;
+    }
+    final localTicket = _snapshotHeldTicket();
+    try {
+      final parked = await ref
+          .read(posOrderRepositoryProvider)
+          .parkOrder(_parkOrderRequest());
+      setState(_clearOrderState);
+      _queueDisplaySync(clear: true);
+      _showSnack('Order parked ${parked.displayNumber}.');
+      return;
+    } on Object catch (error) {
+      _showSnack(
+        'Park API failed, saved locally: ${_errorMessage(error)}',
+        isError: true,
       );
+    }
+
+    setState(() {
+      _heldTickets.add(localTicket);
       _clearOrderState();
     });
     _queueDisplaySync(clear: true);
@@ -847,6 +858,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   }
 
   Future<void> _openTicketsDrawer() async {
+    final tickets = await _loadTicketsForDrawer();
+    if (!mounted) {
+      return;
+    }
     final ticket = await showGeneralDialog<_HeldTicket>(
       context: context,
       barrierDismissible: true,
@@ -854,7 +869,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 160),
       pageBuilder: (context, animation, secondaryAnimation) {
-        return _HeldTicketsOverlay(tickets: _heldTickets, money: _money);
+        return _HeldTicketsOverlay(tickets: tickets, money: _money);
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
@@ -876,20 +891,79 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     if (ticket == null) {
       return;
     }
+    await _resumeHeldTicket(ticket);
+  }
+
+  _HeldTicket _snapshotHeldTicket() {
+    return _HeldTicket(
+      token: _nextHeldToken++,
+      lines: List<_CartLine>.of(_cart),
+      orderType: _orderType,
+      customerName: _customerName,
+      customerPhone: _customerPhone,
+      customerAddress: _customerAddress,
+      orderNotes: _orderNotes,
+      table: _selectedTable,
+      discount: _discount,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  Future<List<_HeldTicket>> _loadTicketsForDrawer() async {
+    try {
+      final rows = await ref.read(posOrderRepositoryProvider).fetchOpenOrders();
+      final serverTickets = rows
+          .map(_heldTicketFromOrderSummary)
+          .whereType<_HeldTicket>()
+          .toList();
+      final serverIds = serverTickets
+          .map((ticket) => ticket.serverOrderId)
+          .whereType<int>()
+          .toSet();
+      return [
+        ...serverTickets,
+        ..._heldTickets.where(
+          (ticket) =>
+              ticket.serverOrderId == null ||
+              !serverIds.contains(ticket.serverOrderId),
+        ),
+      ];
+    } on Object catch (error) {
+      _showSnack('Could not load server orders: ${_errorMessage(error)}');
+      return List<_HeldTicket>.of(_heldTickets);
+    }
+  }
+
+  Future<void> _resumeHeldTicket(_HeldTicket ticket) async {
+    var resolved = ticket;
+    final serverOrderId = ticket.serverOrderId;
+    if (serverOrderId != null) {
+      try {
+        final detail = await ref
+            .read(posOrderRepositoryProvider)
+            .fetchOrder(serverOrderId);
+        resolved = _heldTicketFromOrderDetail(detail) ?? ticket;
+      } on Object catch (error) {
+        _showSnack('Could not resume order: ${_errorMessage(error)}');
+        return;
+      }
+    }
+
     setState(() {
       _heldTickets.remove(ticket);
       _cart
         ..clear()
-        ..addAll(ticket.lines);
-      _orderType = ticket.orderType;
-      _customerName = ticket.customerName;
-      _customerPhone = ticket.customerPhone;
-      _customerAddress = ticket.customerAddress;
-      _orderNotes = ticket.orderNotes;
-      _selectedTable = ticket.table;
-      _orderNoteController.text = ticket.orderNotes ?? '';
-      _orderNoteEditorVisible = ticket.orderNotes != null;
-      _discount = ticket.discount;
+        ..addAll(resolved.lines);
+      _orderType = resolved.orderType;
+      _customerName = resolved.customerName;
+      _customerPhone = resolved.customerPhone;
+      _customerAddress = resolved.customerAddress;
+      _orderNotes = resolved.orderNotes;
+      _selectedTable = resolved.table;
+      _orderNoteController.text = resolved.orderNotes ?? '';
+      _orderNoteEditorVisible = resolved.orderNotes != null;
+      _discount = resolved.discount;
+      _resumedServerOrderId = resolved.serverOrderId;
       _expandedCartLineKey = null;
     });
     _queueDisplaySync();
@@ -928,6 +1002,11 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         'payment selected total=$_payable items=${_cart.length} '
         'register=${_registerPaymentFor(payment)?.toJson()}',
       );
+    }
+    final existingOrderId = _resumedServerOrderId;
+    if (existingOrderId != null) {
+      await _payExistingOrder(existingOrderId, payment, printerConfig);
+      return;
     }
     final request = _orderRequest(payment);
 
@@ -1217,6 +1296,170 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         );
       }
       return true;
+    }
+  }
+
+  Future<void> _payExistingOrder(
+    int orderId,
+    _PaymentSelection payment,
+    PrinterConfig printerConfig,
+  ) async {
+    setState(() => _isCharging = true);
+    try {
+      Object? paymentError;
+      Object? displayError;
+      bool paymentConfirmed = payment.method != 'upi';
+      PosOrderPaymentResult? paymentResult;
+
+      if (payment.method == 'upi') {
+        try {
+          _debugUpiQr('starting payment for parked orderId=$orderId');
+          paymentResult = await ref
+              .read(posOrderRepositoryProvider)
+              .payOrderDynamicQr(orderId);
+          if (paymentResult.qrText == null || paymentResult.qrText!.isEmpty) {
+            paymentResult = await ref
+                .read(posOrderRepositoryProvider)
+                .fetchPaymentQr(
+                  orderId,
+                  gateway: paymentResult.gateway ?? 'phonepe',
+                );
+          }
+          final qr = paymentResult.qrText;
+          if (qr == null || qr.isEmpty) {
+            throw const AppException(
+              message: 'UPI payment QR was not returned.',
+            );
+          }
+
+          String? displayMode;
+          try {
+            displayMode = await showSmartPosUpiQr(
+              qr: qr,
+              orderNumber: paymentResult.orderNumber ?? 'ORD-$orderId',
+              amount: paymentResult.total ?? _payable,
+              payeeName: paymentResult.payeeName,
+              upiId: paymentResult.displayUpiId,
+              timeoutSeconds: paymentResult.timeoutSeconds,
+            );
+          } on Object catch (error) {
+            displayError = error;
+            _debugUpiQr('customer display error=${_errorMessage(error)}');
+          }
+
+          final paymentFuture = _waitForUpiPayment(
+            orderId,
+            initial: paymentResult,
+            timeoutSeconds: paymentResult.timeoutSeconds,
+          );
+          if (_isUpiQrSubDisplayMode(displayMode)) {
+            await paymentFuture;
+            paymentConfirmed = true;
+          } else {
+            if (!mounted) {
+              return;
+            }
+            final paid = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => _UpiQrPaymentDialog(
+                qr: qr,
+                orderNumber: paymentResult?.orderNumber ?? 'ORD-$orderId',
+                amount: paymentResult?.total ?? _payable,
+                money: _money,
+                payeeName: paymentResult?.payeeName,
+                upiId: paymentResult?.displayUpiId,
+                paymentFuture: paymentFuture,
+              ),
+            );
+            paymentConfirmed = paid == true;
+            if (!paymentConfirmed) {
+              throw const AppException(
+                message: 'UPI payment was not confirmed.',
+              );
+            }
+          }
+        } on Object catch (error) {
+          paymentError = error;
+        }
+      } else {
+        paymentResult = await ref
+            .read(posOrderRepositoryProvider)
+            .payOrder(
+              orderId,
+              method: _apiPaymentMethod(payment),
+              payment: _registerPaymentFor(payment),
+            );
+      }
+
+      final paidOrderNumber = paymentResult?.orderNumber ?? 'ORD-$orderId';
+      Object? printError;
+      int? printedBytes;
+      if (payment.method != 'upi' || paymentConfirmed) {
+        try {
+          final fallbackReceipt = _receiptForCurrentCart(
+            orderNumber: paidOrderNumber,
+            title: 'RECEIPT',
+            payment: payment,
+            createdAt: DateTime.now(),
+            orderId: orderId,
+            totalOverride: paymentResult?.total ?? _payable,
+          );
+          final receipt = await _receiptFromBackendOrFallback(
+            orderId: orderId,
+            fallback: fallbackReceipt,
+          );
+          printedBytes = await ref
+              .read(printerRepositoryProvider)
+              .printReceipt(
+                receipt,
+                currencyCode: _currencyCode,
+                config: printerConfig,
+              );
+        } on Object catch (error) {
+          printError = error;
+        }
+      }
+
+      if (paymentConfirmed) {
+        unawaited(
+          clearSmartPosCustomerDisplay().catchError((Object error) {
+            displayError ??= error;
+          }),
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+      if (paymentError != null) {
+        _showSnack(
+          'Payment failed: ${_errorMessage(paymentError)}',
+          isError: true,
+        );
+        return;
+      }
+      setState(_clearOrderState);
+      _queueDisplaySync(clear: true);
+      final printedSuffix = printedBytes == null ? '' : ' Receipt printed.';
+      _showNotice('Order $paidOrderNumber paid.$printedSuffix');
+      if (displayError != null && payment.method != 'upi') {
+        _showSnack(
+          'Customer display failed: ${_errorMessage(displayError!)}',
+          isError: true,
+        );
+      }
+      if (printError != null) {
+        _showSnack('Print failed: ${_errorMessage(printError)}', isError: true);
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        _showSnack(_errorMessage(error), isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCharging = false);
+      }
     }
   }
 
@@ -1643,16 +1886,280 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     );
   }
 
+  CreatePosOrderRequest _parkOrderRequest() {
+    return CreatePosOrderRequest(
+      type: _orderType,
+      tableId: _orderType == 'dine_in' ? _selectedTable?.id : null,
+      posTerminalCode: widget.terminal.terminalCode,
+      customerName: _customerName ?? 'Guest',
+      customerPhone: _customerPhone,
+      customerAddress: _customerAddress,
+      notes: _orderNotes,
+      discount: _discount?.toApiPayload(),
+      items: _cart.map((line) {
+        return PosOrderItemRequest(
+          menuItemId: apiIdentifierFromString(line.item.id),
+          variantId: line.variant == null
+              ? null
+              : apiIdentifierFromString(line.variant!.id),
+          quantity: line.quantity,
+          notes: line.note,
+          modifiers: line.modifiers.map((modifier) {
+            return modifier.toApiPayload();
+          }).toList(),
+        );
+      }).toList(),
+    );
+  }
+
+  _HeldTicket? _heldTicketFromOrderSummary(Map<String, dynamic> json) {
+    final order = _orderMapFrom(json);
+    final id = _nullableInt(order['id'] ?? json['id']);
+    final lines = _cartLinesFromOrderItems(_asMapList(order['items']));
+    if (id == null && lines.isEmpty) {
+      return null;
+    }
+    final token = _intValue(
+      order['token'] ?? order['display_token'] ?? order['id'] ?? json['id'],
+      fallback: _nextHeldToken,
+    );
+    final createdAt =
+        DateTime.tryParse(
+          _stringValue(order['created_at'] ?? order['createdAt']),
+        ) ??
+        DateTime.now();
+    final table = _tableFromOrder(order);
+    return _HeldTicket(
+      serverOrderId: id,
+      orderNumber: _nullableString(order['order_number'] ?? order['number']),
+      token: token,
+      lines: lines,
+      orderType: _stringValue(order['type'], fallback: 'dine_in'),
+      customerName: _nullableString(order['customer_name']),
+      orderNotes: _nullableString(order['notes']),
+      table: table,
+      createdAt: createdAt,
+      status: _nullableString(order['status']),
+      paymentStatus: _nullableString(order['payment_status']),
+      canCollectPayment: _nullableBool(order['can_collect_payment']) ?? false,
+      amountDue: _doubleValue(order['amount_due']),
+      totalOverride: order.containsKey('total')
+          ? _doubleValue(order['total'])
+          : null,
+    );
+  }
+
+  _HeldTicket? _heldTicketFromOrderDetail(Map<String, dynamic> json) {
+    final order = _orderMapFrom(json);
+    final form = _asMap(json['form']);
+    final discount = _asMap(json['discount']);
+    final cartLines = _cartLinesFromCartRows(_asMapList(json['cart']));
+    final lines = cartLines.isEmpty
+        ? _cartLinesFromOrderItems(_asMapList(order['items']))
+        : cartLines;
+    final fallback = _heldTicketFromOrderSummary(order);
+    if (lines.isEmpty && fallback == null) {
+      return null;
+    }
+    final tableId = form['table_id'] ?? order['table_id'];
+    final tableName = _nullableString(
+      form['table_name'] ?? order['table_name'],
+    );
+    final table = tableId == null
+        ? _tableFromOrder(order)
+        : _PosTable(
+            id: tableId,
+            name: tableName ?? _stringValue(tableId, fallback: 'Table'),
+            status: '',
+            capacity: 0,
+            sortOrder: 0,
+          );
+
+    final base =
+        fallback ??
+        _HeldTicket(
+          serverOrderId: _nullableInt(order['id']),
+          orderNumber: _nullableString(
+            order['order_number'] ?? order['number'],
+          ),
+          token: _intValue(order['token'] ?? order['id'], fallback: 0),
+          lines: const [],
+          orderType: _stringValue(order['type'], fallback: 'dine_in'),
+          createdAt:
+              DateTime.tryParse(_stringValue(order['created_at'])) ??
+              DateTime.now(),
+          status: _nullableString(order['status']),
+          paymentStatus: _nullableString(order['payment_status']),
+          canCollectPayment:
+              _nullableBool(order['can_collect_payment']) ?? false,
+          amountDue: _doubleValue(order['amount_due']),
+          totalOverride: order.containsKey('total')
+              ? _doubleValue(order['total'])
+              : null,
+        );
+
+    return base.copyWith(
+      lines: lines.isEmpty ? fallback?.lines : lines,
+      orderType: _stringValue(
+        form['type'] ?? order['type'],
+        fallback: 'dine_in',
+      ),
+      customerName: _nullableString(
+        form['customer_name'] ?? order['customer_name'],
+      ),
+      customerPhone: _nullableString(form['customer_phone']),
+      customerAddress: _nullableString(form['customer_address']),
+      orderNotes: _nullableString(form['notes'] ?? order['notes']),
+      table: table,
+      discount: discount.isEmpty ? null : _Discount.fromApi(discount),
+    );
+  }
+
+  Map<String, dynamic> _orderMapFrom(Map<String, dynamic> json) {
+    return _asMap(json['order']).isEmpty ? json : _asMap(json['order']);
+  }
+
+  List<_CartLine> _cartLinesFromCartRows(List<Map<String, dynamic>> rows) {
+    return rows.map(_cartLineFromCartRow).whereType<_CartLine>().toList();
+  }
+
+  List<_CartLine> _cartLinesFromOrderItems(List<Map<String, dynamic>> rows) {
+    return rows.map(_cartLineFromOrderItem).whereType<_CartLine>().toList();
+  }
+
+  _CartLine? _cartLineFromCartRow(Map<String, dynamic> row) {
+    final quantity = _intValue(row['quantity'] ?? row['qty'], fallback: 1);
+    final unitPrice = _doubleValue(row['unit_price'] ?? row['unitPrice']);
+    final name = _stringValue(
+      row['menu_item_name'] ?? row['name'] ?? row['item_name'],
+      fallback: 'Menu item',
+    );
+    final itemId = _stringValue(
+      row['menu_item_id'] ?? row['menuItemId'],
+      fallback: name,
+    );
+    final item = _catalogItemForServerRow(
+      itemId: itemId,
+      name: name,
+      unitPrice: unitPrice,
+    );
+    final variantId = _stringValue(row['variant_id'] ?? row['variantId']);
+    final variant = variantId.isEmpty
+        ? null
+        : _variantForServerRow(item, variantId, unitPrice);
+    return _CartLine(
+      item: item,
+      quantity: quantity,
+      note: _nullableString(row['notes'] ?? row['note']),
+      variant: variant,
+      modifiers: _selectedModifiersFromApi(_asMapList(row['modifiers'])),
+    );
+  }
+
+  _CartLine? _cartLineFromOrderItem(Map<String, dynamic> row) {
+    final quantity = _intValue(row['quantity'] ?? row['qty'], fallback: 1);
+    final unitPrice = _doubleValue(row['unit_price'] ?? row['unitPrice']);
+    final name = _stringValue(
+      row['menu_item_name'] ?? row['item_name'] ?? row['name'],
+      fallback: 'Menu item',
+    );
+    final itemId = _stringValue(
+      row['menu_item_id'] ?? row['menuItemId'] ?? row['id'],
+      fallback: name,
+    );
+    return _CartLine(
+      item: _catalogItemForServerRow(
+        itemId: itemId,
+        name: name,
+        unitPrice: unitPrice,
+      ),
+      quantity: quantity,
+      note: _nullableString(row['notes'] ?? row['note']),
+      modifiers: _selectedModifiersFromApi(_asMapList(row['modifiers'])),
+    );
+  }
+
+  _CatalogItem _catalogItemForServerRow({
+    required String itemId,
+    required String name,
+    required double unitPrice,
+  }) {
+    final existing = _allItems
+        .where((item) => item.id == itemId || item.name == name)
+        .firstOrNull;
+    if (existing != null) {
+      return existing;
+    }
+    return _CatalogItem(
+      id: itemId.isEmpty ? name : itemId,
+      name: name,
+      price: unitPrice,
+      categoryId: '',
+      categoryName: 'Parked order',
+    );
+  }
+
+  _ItemVariant? _variantForServerRow(
+    _CatalogItem item,
+    String variantId,
+    double unitPrice,
+  ) {
+    return item.variants
+            .where((variant) => variant.id == variantId)
+            .firstOrNull ??
+        _ItemVariant(id: variantId, name: 'Variant', price: unitPrice);
+  }
+
+  List<_SelectedModifier> _selectedModifiersFromApi(
+    List<Map<String, dynamic>> rows,
+  ) {
+    return rows.map((row) {
+      return _SelectedModifier(
+        groupId: _stringValue(
+          row['modifier_id'] ?? row['modifierId'] ?? row['modifier_name'],
+          fallback: _stringValue(row['modifier_name'], fallback: 'Modifier'),
+        ),
+        groupName: _stringValue(row['modifier_name'], fallback: 'Modifier'),
+        optionId: _stringValue(
+          row['modifier_option_id'] ?? row['modifierOptionId'],
+          fallback: _stringValue(row['option_name'], fallback: 'Option'),
+        ),
+        optionName: _stringValue(row['option_name'], fallback: 'Option'),
+        priceAdjustment: _doubleValue(
+          row['price_adjustment'] ?? row['priceAdjustment'],
+        ),
+      );
+    }).toList();
+  }
+
+  _PosTable? _tableFromOrder(Map<String, dynamic> order) {
+    final tableId = order['table_id'];
+    final tableName = _nullableString(order['table_name']);
+    if (tableId == null && tableName == null) {
+      return null;
+    }
+    return _PosTable(
+      id: tableId ?? tableName ?? '',
+      name: tableName ?? _stringValue(tableId, fallback: 'Table'),
+      status: '',
+      capacity: 0,
+      sortOrder: 0,
+    );
+  }
+
   PosRegisterPayment? _registerPaymentFor(_PaymentSelection payment) {
     if (payment.method == 'pay_later') {
       return null;
     }
-    final method = payment.method == 'upi' ? 'phonepe' : payment.method;
     return PosRegisterPayment(
-      method: method,
+      method: _apiPaymentMethod(payment),
       cashTendered: payment.method == 'cash' ? payment.cashTendered : null,
       tip: payment.tip,
     );
+  }
+
+  String _apiPaymentMethod(_PaymentSelection payment) {
+    return payment.method == 'upi' ? 'phonepe' : payment.method;
   }
 
   void _debugUpiQr(String message) {
@@ -1670,6 +2177,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _orderNoteController.clear();
     _orderNoteEditorVisible = false;
     _discount = null;
+    _resumedServerOrderId = null;
     _isCharging = false;
   }
 
@@ -9142,6 +9650,9 @@ class _HeldTicketCard extends StatelessWidget {
     final customer = ticket.customerName?.trim();
     final note = ticket.orderNotes?.trim();
     final firstLine = ticket.lines.isEmpty ? null : ticket.lines.first;
+    final status = _orderStatusLabel(ticket.status);
+    final paymentStatus = _paymentStatusLabel(ticket.paymentStatus);
+    final due = ticket.amountDue > 0 ? ticket.amountDue : ticket.total;
     return InkWell(
       borderRadius: BorderRadius.circular(24),
       onTap: () => Navigator.of(context).pop(ticket),
@@ -9175,7 +9686,8 @@ class _HeldTicketCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              'ORD-${ticket.createdAt.year}${ticket.token.toString().padLeft(4, '0')}',
+                              ticket.orderNumber ??
+                                  'ORD-${ticket.createdAt.year}${ticket.token.toString().padLeft(4, '0')}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -9225,18 +9737,38 @@ class _HeldTicketCard extends StatelessWidget {
                         runSpacing: 8,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          const _OrderStatusChip(
-                            label: 'PENDING',
-                            background: Color(0xFFFFFBEB),
-                            border: Color(0xFFFDE68A),
-                            text: Color(0xFF92400E),
+                          if (!ticket.isServerBacked)
+                            const _OrderStatusChip(
+                              label: 'DRAFT',
+                              background: Color(0xFFEFF6FF),
+                              border: Color(0xFFBFDBFE),
+                              text: Color(0xFF334155),
+                            ),
+                          _OrderStatusChip(
+                            label: status,
+                            background: const Color(0xFFFFFBEB),
+                            border: const Color(0xFFFDE68A),
+                            text: const Color(0xFF92400E),
                           ),
-                          const _OrderStatusChip(
-                            label: 'PAID',
-                            background: Color(0xFFD1FAE5),
-                            border: Color(0xFF86EFAC),
-                            text: Color(0xFF047857),
+                          _OrderStatusChip(
+                            label: paymentStatus,
+                            background: paymentStatus == 'PAID'
+                                ? const Color(0xFFD1FAE5)
+                                : const Color(0xFFFFF7ED),
+                            border: paymentStatus == 'PAID'
+                                ? const Color(0xFF86EFAC)
+                                : const Color(0xFFFED7AA),
+                            text: paymentStatus == 'PAID'
+                                ? const Color(0xFF047857)
+                                : const Color(0xFF9A3412),
                           ),
+                          if (ticket.canCollectPayment || due > 0)
+                            _OrderStatusChip(
+                              label: 'Amount due ${money.format(due)}',
+                              background: const Color(0xFFFFF7ED),
+                              border: const Color(0xFFFED7AA),
+                              text: const Color(0xFF9A3412),
+                            ),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -9356,7 +9888,9 @@ class _HeldTicketCard extends StatelessWidget {
                       ),
                       onPressed: () => Navigator.of(context).pop(ticket),
                       icon: const Icon(Icons.check, size: 26),
-                      label: const Text('Accept'),
+                      label: Text(
+                        ticket.canCollectPayment ? 'Collect payment' : 'Accept',
+                      ),
                     ),
                   ),
                 ),
@@ -10133,14 +10667,23 @@ class _HeldTicket {
     required this.lines,
     required this.orderType,
     required this.createdAt,
+    this.serverOrderId,
+    this.orderNumber,
     this.customerName,
     this.customerPhone,
     this.customerAddress,
     this.orderNotes,
     this.table,
     this.discount,
+    this.status,
+    this.paymentStatus,
+    this.canCollectPayment = false,
+    this.amountDue = 0,
+    this.totalOverride,
   });
 
+  final int? serverOrderId;
+  final String? orderNumber;
   final int token;
   final List<_CartLine> lines;
   final String orderType;
@@ -10151,9 +10694,47 @@ class _HeldTicket {
   final String? orderNotes;
   final _PosTable? table;
   final _Discount? discount;
+  final String? status;
+  final String? paymentStatus;
+  final bool canCollectPayment;
+  final double amountDue;
+  final double? totalOverride;
 
   int get itemCount => lines.fold(0, (sum, line) => sum + line.quantity);
-  double get total => lines.fold(0, (sum, line) => sum + line.total);
+  double get total =>
+      totalOverride ?? lines.fold(0, (sum, line) => sum + line.total);
+  bool get isServerBacked => serverOrderId != null;
+
+  _HeldTicket copyWith({
+    List<_CartLine>? lines,
+    String? orderType,
+    String? customerName,
+    String? customerPhone,
+    String? customerAddress,
+    String? orderNotes,
+    _PosTable? table,
+    _Discount? discount,
+  }) {
+    return _HeldTicket(
+      serverOrderId: serverOrderId,
+      orderNumber: orderNumber,
+      token: token,
+      lines: lines ?? this.lines,
+      orderType: orderType ?? this.orderType,
+      createdAt: createdAt,
+      customerName: customerName ?? this.customerName,
+      customerPhone: customerPhone ?? this.customerPhone,
+      customerAddress: customerAddress ?? this.customerAddress,
+      orderNotes: orderNotes ?? this.orderNotes,
+      table: table ?? this.table,
+      discount: discount ?? this.discount,
+      status: status,
+      paymentStatus: paymentStatus,
+      canCollectPayment: canCollectPayment,
+      amountDue: amountDue,
+      totalOverride: totalOverride,
+    );
+  }
 }
 
 class _Discount {
@@ -10173,6 +10754,14 @@ class _Discount {
       'value': value,
       if (reason.isNotEmpty) 'reason': reason,
     };
+  }
+
+  factory _Discount.fromApi(Map<String, dynamic> json) {
+    return _Discount(
+      type: _stringValue(json['type'], fallback: 'amount'),
+      value: _doubleValue(json['value']),
+      reason: _stringValue(json['reason']),
+    );
   }
 }
 
@@ -10437,6 +11026,23 @@ String _orderTypeLabel(String value) {
   }
 }
 
+String _orderStatusLabel(String? value) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) {
+    return 'PENDING';
+  }
+  return text.replaceAll('_', ' ').toUpperCase();
+}
+
+String _paymentStatusLabel(String? value) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) {
+    return 'PAYMENT PENDING';
+  }
+  final normalized = text.replaceAll('_', ' ').toUpperCase();
+  return normalized == 'PENDING' ? 'PAYMENT PENDING' : normalized;
+}
+
 List<Map<String, dynamic>> _firstMapList(
   Map<String, dynamic> source,
   List<String> keys,
@@ -10550,6 +11156,13 @@ bool? _nullableBool(Object? value) {
     return false;
   }
   return null;
+}
+
+Map<String, dynamic> _asMap(Object? value) {
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  return const <String, dynamic>{};
 }
 
 List<Map<String, dynamic>> _asMapList(Object? value) {
