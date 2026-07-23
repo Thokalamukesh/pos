@@ -10606,6 +10606,20 @@ AsyncValue<List<PosLanguage>> _languagesWithBootstrap(
   );
 }
 
+@visibleForTesting
+List<PosLanguage> posLanguagesFromBootstrapForTest(PosBootstrap bootstrap) {
+  return _languagesFromBootstrap(bootstrap);
+}
+
+@visibleForTesting
+Object? translatedPosValueForTest(
+  Map<String, dynamic> source,
+  String languageCode,
+  List<String> keys,
+) {
+  return _translatedValue(source, languageCode, keys);
+}
+
 List<PosLanguage> _languagesFromBootstrap(PosBootstrap bootstrap) {
   final languages = <PosLanguage>[];
   void collectFromMap(Map<String, dynamic> map) {

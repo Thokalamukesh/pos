@@ -5,6 +5,7 @@ import 'package:selfx_pos/models/pairing_models.dart';
 import 'package:selfx_pos/models/pos_bootstrap.dart';
 import 'package:selfx_pos/models/printer_config.dart';
 import 'package:selfx_pos/features/customer_display/domain/customer_display_models.dart';
+import 'package:selfx_pos/features/pos/pos_shell_screen.dart';
 import 'package:selfx_pos/repositories/offline_order_repository.dart';
 import 'package:selfx_pos/repositories/shift_repository.dart';
 import 'package:selfx_pos/services/shift_api_service.dart';
@@ -118,6 +119,62 @@ void main() {
       'native_name': 'తెలుగు',
     });
     expect(bootstrap.popularItems.single['translations'], isNotEmpty);
+  });
+
+  test('POS bootstrap discovers languages from map translations', () {
+    final bootstrap = PosBootstrap.fromJson({
+      'restaurant': {'id': 4, 'name': 'Yogi Ahar'},
+      'branch': {'id': 6, 'name': 'Main'},
+      'popular_items': [
+        {
+          'id': 221,
+          'name': 'Filter Coffee',
+          'translations': {
+            'Kannada': {'name': 'ಫಿಲ್ಟರ್ ಕಾಫಿ'},
+          },
+        },
+      ],
+      'categories': [
+        {
+          'id': 79,
+          'name': 'water bottle',
+          'translations': {
+            'Telugu': {'name': 'నీటి సీసా'},
+            'Kannada': {'name': 'ನೀರಿನ ಬಾಟಲ್'},
+          },
+          'menu_items': [
+            {
+              'id': 409,
+              'name': 'Water bottle',
+              'translations': {
+                'Telugu': {'name': 'నీళ్ల సీసా'},
+                'Kannada': {'name': 'ನೀರಿನ ಬಾಟಲ್'},
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    final languages = posLanguagesFromBootstrapForTest(bootstrap);
+    expect(
+      languages.map((language) => language.code),
+      containsAll(['te', 'kn']),
+    );
+    expect(
+      translatedPosValueForTest(bootstrap.categories.single, 'te', const [
+        'name',
+        'title',
+      ]),
+      'నీటి సీసా',
+    );
+    expect(
+      translatedPosValueForTest(bootstrap.popularItems.single, 'kn', const [
+        'name',
+        'title',
+      ]),
+      'ಫಿಲ್ಟರ್ ಕಾಫಿ',
+    );
   });
 
   test('create POS order payload uses official payment field names', () {
