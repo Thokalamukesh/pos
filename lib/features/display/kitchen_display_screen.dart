@@ -228,8 +228,11 @@ class _KitchenDisplayRepository {
     Map<String, dynamic> data;
     try {
       data = _dataMap(await _get('${AppConfig.apiPrefix}/kitchen/bootstrap'));
-    } on AppException {
-      data = _dataMap(await _get('${AppConfig.apiPrefix}/kitchen/orders'));
+    } on AppException catch (error) {
+      if (!error.isForbidden && !error.isUnauthorized) {
+        rethrow;
+      }
+      data = _dataMap(await _get('${AppConfig.apiPrefix}/pos/bootstrap'));
     }
     final restaurant = _asMap(data['restaurant']);
     final branch = _asMap(data['branch']);
@@ -273,15 +276,22 @@ class _KitchenDisplayRepository {
   }
 
   Future<_KitchenOrdersResponse> orders({int? kitchenId}) async {
-    final response = await _get(
-      '${AppConfig.apiPrefix}/kitchen/orders',
-      queryParameters: kitchenId == null ? null : {'kitchen': kitchenId},
-    );
-    final data = _dataMap(response);
-    return _KitchenOrdersResponse(
-      selectedKitchenId: _nullableInt(data['selected_kitchen_id']),
-      orders: _ordersFrom(data['orders'] ?? data['orders_by_status'] ?? data),
-    );
+    try {
+      final response = await _get(
+        '${AppConfig.apiPrefix}/kitchen/orders',
+        queryParameters: kitchenId == null ? null : {'kitchen': kitchenId},
+      );
+      final data = _dataMap(response);
+      return _KitchenOrdersResponse(
+        selectedKitchenId: _nullableInt(data['selected_kitchen_id']),
+        orders: _ordersFrom(data['orders'] ?? data['orders_by_status'] ?? data),
+      );
+    } on AppException catch (error) {
+      if (!error.isForbidden && !error.isUnauthorized) {
+        rethrow;
+      }
+      return _posOrdersFallback();
+    }
   }
 
   Future<void> updateStatus(_KitchenOrder order, _KitchenStatus status) async {
@@ -292,13 +302,17 @@ class _KitchenDisplayRepository {
         if (order.ticketId != 0)
           '${AppConfig.apiPrefix}/kitchen/tickets/${order.ticketId}/status',
         '${AppConfig.apiPrefix}/kitchen/orders/${order.id}/status',
+        '${AppConfig.apiPrefix}/pos/orders/${order.id}/status',
+        '${AppConfig.apiPrefix}/pos/orders/${order.id}/update-status',
       ]) {
         try {
           await _dio.patch<Map<String, dynamic>>(path, data: {'status': value});
           return;
         } on DioException catch (error) {
           final exception = AppException.fromDio(error);
-          if (error.response?.statusCode != 422 &&
+          if (error.response?.statusCode != 401 &&
+              error.response?.statusCode != 403 &&
+              error.response?.statusCode != 422 &&
               error.response?.statusCode != 404 &&
               error.response?.statusCode != 405) {
             throw exception;
@@ -319,7 +333,11 @@ class _KitchenDisplayRepository {
         data: {'kitchen_priority': order.kitchenPriority + 1},
       );
     } on DioException catch (error) {
-      throw AppException.fromDio(error);
+      final exception = AppException.fromDio(error);
+      if (exception.isForbidden || exception.isUnauthorized) {
+        return;
+      }
+      throw exception;
     }
   }
 
@@ -336,6 +354,29 @@ class _KitchenDisplayRepository {
     } on DioException catch (error) {
       throw AppException.fromDio(error);
     }
+  }
+
+  Future<_KitchenOrdersResponse> _posOrdersFallback() async {
+    final data = _dataMap(
+      await _get('${AppConfig.apiPrefix}/pos/recent-orders'),
+    );
+    var orders = _ordersFrom(data['orders'] ?? data['data'] ?? data['items']);
+    orders = orders
+        .where(
+          (order) =>
+              order.status != _KitchenStatus.draft &&
+              order.status != _KitchenStatus.cancelled,
+        )
+        .toList();
+
+    if (orders.isEmpty) {
+      final openData = _dataMap(
+        await _get('${AppConfig.apiPrefix}/pos/open-orders'),
+      );
+      orders = _ordersFrom(openData['orders'] ?? openData['data']);
+    }
+
+    return _KitchenOrdersResponse(selectedKitchenId: null, orders: orders);
   }
 }
 
@@ -1634,7 +1675,12 @@ class _KitchenDisplayState {
   final DateTime? lastUpdated;
 
   List<_KitchenOrder> get activeOrders => orders
-      .where((order) => order.status != _KitchenStatus.completed)
+      .where(
+        (order) =>
+            order.status != _KitchenStatus.completed &&
+            order.status != _KitchenStatus.cancelled &&
+            order.status != _KitchenStatus.draft,
+      )
       .toList();
 
   int count(_KitchenStatus status) =>
@@ -1827,6 +1873,7 @@ class _KitchenOrderItem {
 }
 
 enum _KitchenStatus {
+  draft('draft', 'DRAFT', AppColors.muted),
   newest('pending', 'NEW', AppColors.gold),
   queued('confirmed', 'QUEUED', AppColors.sky, ['accepted', 'queued']),
   cooking('preparing', 'COOKING', AppColors.purpleHot, [
@@ -1834,6 +1881,7 @@ enum _KitchenStatus {
     'in_progress',
   ]),
   ready('ready', 'READY', AppColors.mint, ['ready_for_pickup']),
+  cancelled('cancelled', 'CANCELLED', AppColors.red, ['canceled']),
   completed('delivered', 'PICKED UP', AppColors.muted, [
     'picked_up',
     'pickedup',
@@ -1864,30 +1912,36 @@ enum _KitchenStatus {
 
   IconData get icon {
     return switch (this) {
+      _KitchenStatus.draft => Icons.pause_circle_outline,
       _KitchenStatus.newest => Icons.notifications_none_rounded,
       _KitchenStatus.queued => Icons.check_rounded,
       _KitchenStatus.cooking => Icons.local_fire_department_outlined,
       _KitchenStatus.ready => Icons.room_service_outlined,
+      _KitchenStatus.cancelled => Icons.cancel_outlined,
       _KitchenStatus.completed => Icons.done_all_rounded,
     };
   }
 
   String get actionLabel {
     return switch (this) {
+      _KitchenStatus.draft => 'Draft',
       _KitchenStatus.newest => 'Accept order',
       _KitchenStatus.queued => 'Start cooking',
       _KitchenStatus.cooking => 'Ready for pickup',
       _KitchenStatus.ready => 'Picked up / served',
+      _KitchenStatus.cancelled => 'Cancelled',
       _KitchenStatus.completed => 'Done',
     };
   }
 
   Color get actionColor {
     return switch (this) {
+      _KitchenStatus.draft => AppColors.muted,
       _KitchenStatus.newest => AppColors.orange,
       _KitchenStatus.queued => AppColors.sky,
       _KitchenStatus.cooking => AppColors.purpleHot,
       _KitchenStatus.ready => const Color(0xFF5B5B66),
+      _KitchenStatus.cancelled => AppColors.red,
       _KitchenStatus.completed => AppColors.muted,
     };
   }
@@ -1903,10 +1957,12 @@ enum _KitchenStatus {
 
   _KitchenStatus? get next {
     return switch (this) {
+      _KitchenStatus.draft => null,
       _KitchenStatus.newest => _KitchenStatus.queued,
       _KitchenStatus.queued => _KitchenStatus.cooking,
       _KitchenStatus.cooking => _KitchenStatus.ready,
       _KitchenStatus.ready => _KitchenStatus.completed,
+      _KitchenStatus.cancelled => null,
       _KitchenStatus.completed => null,
     };
   }
@@ -1914,10 +1970,12 @@ enum _KitchenStatus {
   static _KitchenStatus fromApi(Object? value) {
     final normalized = value?.toString().toLowerCase().trim();
     return switch (normalized) {
+      'draft' || 'held' => _KitchenStatus.draft,
       'new' || 'pending' => _KitchenStatus.newest,
       'queued' || 'accepted' || 'confirmed' => _KitchenStatus.queued,
       'cooking' || 'preparing' || 'in_progress' => _KitchenStatus.cooking,
       'ready' || 'ready_for_pickup' => _KitchenStatus.ready,
+      'cancelled' || 'canceled' => _KitchenStatus.cancelled,
       'picked_up' ||
       'pickedup' ||
       'delivered' ||
