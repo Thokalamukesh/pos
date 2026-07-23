@@ -226,11 +226,13 @@ class ReceiptPrintObject {
         : printObject['print_object'] ??
               printObject['commands'] ??
               printObject['items'];
+    final order = _asMap(json['order']) ?? const <String, dynamic>{};
+    final commands = _asMapList(commandsValue);
 
     return ReceiptPrintObject(
       raw: json,
-      order: _asMap(json['order']) ?? const <String, dynamic>{},
-      commands: _asMapList(commandsValue),
+      order: order,
+      commands: commands.isEmpty ? _receiptCommandsFromOrder(order) : commands,
       paper: _nullableString(printObject?['paper'] ?? json['paper']),
       fontSize: _nullableString(
         printObject?['font_size'] ??
@@ -242,6 +244,196 @@ class ReceiptPrintObject {
   }
 
   bool get hasCommands => commands.isNotEmpty;
+}
+
+List<Map<String, dynamic>> _receiptCommandsFromOrder(
+  Map<String, dynamic> order,
+) {
+  if (order.isEmpty) {
+    return const <Map<String, dynamic>>[];
+  }
+  final commands = <Map<String, dynamic>>[
+    {'type': 'init'},
+    {'type': 'text', 'text': 'RECEIPT', 'align': 'center', 'style': 'bold'},
+  ];
+  final token = _nullableString(order['token']);
+  if (token != null) {
+    commands.add({
+      'type': 'text',
+      'text': 'TOKEN #$token',
+      'align': 'center',
+      'style': 'bold_large',
+    });
+  }
+  final orderNumber = _nullableString(
+    order['order_number'] ??
+        order['order_no'] ??
+        order['number'] ??
+        order['id'],
+  );
+  if (orderNumber != null) {
+    commands.add({
+      'type': 'text',
+      'text': 'Order: $orderNumber',
+      'align': 'center',
+      'style': 'bold',
+    });
+  }
+  final createdAt = _nullableString(order['created_at']);
+  if (createdAt != null) {
+    commands.add({'type': 'text', 'text': createdAt, 'align': 'center'});
+  }
+  commands.add({'type': 'divider'});
+
+  _addTextCommand(commands, 'Type', order['type']);
+  _addTextCommand(commands, 'Table', order['table_name']);
+  _addTextCommand(commands, 'Customer', order['customer_name']);
+  _addTextCommand(commands, 'Payment', order['payment_status']);
+  _addTextCommand(commands, 'Method', order['payment_method']);
+  _addTextCommand(commands, 'Txn', order['transaction_id']);
+  _addNoteCommand(commands, order['notes']);
+
+  final items = _asMapList(order['items']);
+  if (items.isNotEmpty) {
+    commands.add({'type': 'divider'});
+    for (final item in items) {
+      final quantity = _intValue(item['quantity']) ?? 1;
+      final name = _receiptItemName(item);
+      commands.add({
+        'type': 'row',
+        'left': '${quantity}x $name',
+        'right': _receiptAmount(item['total'] ?? item['line_total']),
+        'style': 'bold',
+      });
+      final unitPrice = _receiptAmount(item['unit_price']);
+      if (unitPrice.isNotEmpty) {
+        commands.add({'type': 'text', 'text': '@ $unitPrice each'});
+      }
+      for (final modifier in _asMapList(item['modifiers'])) {
+        commands.add({
+          'type': 'row',
+          'left':
+              '+ ${_stringValue(modifier['option_name'], fallback: 'Option')}',
+          'right': _receiptAmount(modifier['price_adjustment']),
+        });
+      }
+      _addTextCommand(commands, 'Kitchen', item['kitchen_counter_name']);
+    }
+  }
+
+  commands.add({'type': 'divider'});
+  _addAmountCommand(commands, 'Subtotal', order['subtotal']);
+  _addAmountCommand(
+    commands,
+    'Discount',
+    order['discount_total'],
+    negative: true,
+  );
+  _addAmountCommand(commands, 'Extra charges', order['extra_charges_total']);
+  for (final charge in _asMapList(order['extra_charges'])) {
+    _addAmountCommand(
+      commands,
+      _stringValue(charge['label'], fallback: 'Charge'),
+      charge['amount'],
+    );
+  }
+  final serviceChargeLabel = _stringValue(
+    order['service_charge_label'],
+    fallback: 'Service charge',
+  );
+  _addAmountCommand(commands, serviceChargeLabel, order['service_charge']);
+  for (final tax in _asMapList(order['tax_breakdown'])) {
+    final label = _receiptTaxLabel(tax);
+    _addAmountCommand(commands, label, tax['amount']);
+  }
+  _addAmountCommand(commands, 'TOTAL', order['total'], bold: true);
+
+  final trackingUrl = _nullableString(order['tracking_url']);
+  if (trackingUrl != null) {
+    commands.addAll([
+      {'type': 'feed', 'lines': 1},
+      {
+        'type': 'text',
+        'text': 'Scan for digital receipt',
+        'align': 'center',
+        'style': 'bold',
+      },
+      {'type': 'qr', 'data': trackingUrl, 'size': 4},
+    ]);
+  }
+  commands.addAll([
+    {'type': 'feed', 'lines': 1},
+    {'type': 'cut'},
+  ]);
+  return commands;
+}
+
+void _addTextCommand(
+  List<Map<String, dynamic>> commands,
+  String label,
+  Object? value,
+) {
+  final text = _nullableString(value);
+  if (text == null) {
+    return;
+  }
+  commands.add({'type': 'text', 'text': '$label: $text'});
+}
+
+void _addNoteCommand(List<Map<String, dynamic>> commands, Object? value) {
+  final text = _nullableString(value);
+  if (text == null) {
+    return;
+  }
+  commands.add({'type': 'text', 'text': 'Note: $text'});
+}
+
+void _addAmountCommand(
+  List<Map<String, dynamic>> commands,
+  String label,
+  Object? value, {
+  bool negative = false,
+  bool bold = false,
+}) {
+  final amount = _doubleValue(value);
+  if (amount == null || amount == 0) {
+    return;
+  }
+  final display = _receiptAmount(negative ? -amount.abs() : amount);
+  commands.add({
+    'type': 'row',
+    'left': label,
+    'right': display,
+    if (bold) 'style': 'bold_large',
+  });
+}
+
+String _receiptAmount(Object? value) {
+  final amount = _doubleValue(value);
+  if (amount == null) {
+    return '';
+  }
+  final sign = amount < 0 ? '-' : '';
+  return '${sign}Rs ${amount.abs().toStringAsFixed(2)}';
+}
+
+String _receiptItemName(Map<String, dynamic> item) {
+  final name = _stringValue(
+    item['name'] ?? item['item_name'] ?? item['menu_item_name'],
+    fallback: 'Item',
+  );
+  final variant = _nullableString(item['variant_name'] ?? item['variant']);
+  return variant == null ? name : '$name ($variant)';
+}
+
+String _receiptTaxLabel(Map<String, dynamic> tax) {
+  final name = _stringValue(tax['name'], fallback: 'Tax');
+  final rate = _doubleValue(tax['rate']);
+  if (rate == null || rate == 0) {
+    return name;
+  }
+  final included = tax['included'] == true ? ' incl' : '';
+  return '$name ${rate.toStringAsFixed(rate.truncateToDouble() == rate ? 0 : 2)}%$included';
 }
 
 class PosDailyReport {

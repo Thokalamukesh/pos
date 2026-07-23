@@ -396,6 +396,54 @@ void main() {
     expect(receipt.commands.last['right'], 'Rs 13.99');
   });
 
+  test(
+    'receipt print object builds receipt QR when server commands are empty',
+    () {
+      final receipt = ReceiptPrintObject.fromResponse({
+        'order': {
+          'id': 88,
+          'token': 12,
+          'order_number': 'ORD-88',
+          'type': 'dine_in',
+          'table_name': 'A1',
+          'customer_name': 'Guest',
+          'payment_status': 'paid',
+          'subtotal': 140,
+          'total': 140,
+          'tracking_url': 'https://app.selfx.in/r/ORD-88',
+          'items': [
+            {
+              'name': 'Ghee Roast',
+              'variant_name': 'Regular',
+              'quantity': 1,
+              'unit_price': 140,
+              'total': 140,
+            },
+          ],
+        },
+        'print_object': {
+          'version': 1,
+          'paper': '56mm',
+          'font_size': null,
+          'print_object': [],
+        },
+      });
+
+      expect(receipt.paper, '56mm');
+      expect(receipt.hasCommands, isTrue);
+      expect(
+        receipt.commands,
+        containsAll([
+          {'type': 'qr', 'data': 'https://app.selfx.in/r/ORD-88', 'size': 4},
+        ]),
+      );
+      expect(
+        receipt.commands.where((command) => command['type'] == 'row'),
+        isNotEmpty,
+      );
+    },
+  );
+
   test('POS daily report parses summary and recent orders', () {
     final report = PosDailyReport.fromResponse({
       'summary': {
