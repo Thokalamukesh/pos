@@ -9232,29 +9232,75 @@ class _HeldTicketsOverlay extends StatelessWidget {
   }
 }
 
-class _HeldTicketsSheet extends StatelessWidget {
+class _HeldTicketsSheet extends StatefulWidget {
   const _HeldTicketsSheet({required this.tickets, required this.money});
 
   final List<_HeldTicket> tickets;
   final NumberFormat money;
 
   @override
+  State<_HeldTicketsSheet> createState() => _HeldTicketsSheetState();
+}
+
+enum _OrdersFilter { today, unpaid, sevenDays }
+
+class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
+  final _searchController = TextEditingController();
+  _OrdersFilter _filter = _OrdersFilter.today;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<_HeldTicket> get _filteredTickets {
+    final query = _searchController.text.trim().toLowerCase();
+    final now = DateTime.now();
+    return widget.tickets.where((ticket) {
+      final matchesFilter = switch (_filter) {
+        _OrdersFilter.today => _isSameDate(ticket.createdAt, now),
+        _OrdersFilter.unpaid => _isTicketUnpaid(ticket),
+        _OrdersFilter.sevenDays => _isWithinLastDays(ticket.createdAt, 7, now),
+      };
+      if (!matchesFilter) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
+      final haystack = [
+        ticket.orderNumber,
+        ticket.customerName,
+        ticket.customerPhone,
+        ticket.table?.name,
+        ticket.status,
+        ticket.paymentStatus,
+        ...ticket.lines.map((line) => line.item.name),
+      ].whereType<String>().join(' ').toLowerCase();
+      return haystack.contains(query) ||
+          ticket.token.toString().contains(query);
+    }).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final tickets = _filteredTickets;
     return Material(
       color: Colors.white,
       elevation: 18,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 960,
-          maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 980),
+          maxWidth: 780,
+          maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 900),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(28, 28, 24, 22),
+              padding: const EdgeInsets.fromLTRB(24, 22, 18, 18),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
@@ -9270,7 +9316,7 @@ class _HeldTicketsSheet extends StatelessWidget {
                           'Orders',
                           style: TextStyle(
                             color: Color(0xFF0F172A),
-                            fontSize: 34,
+                            fontSize: 28,
                             height: 1.05,
                             fontWeight: FontWeight.w900,
                           ),
@@ -9280,9 +9326,9 @@ class _HeldTicketsSheet extends StatelessWidget {
                           'Held tickets and branch activity',
                           style: TextStyle(
                             color: Color(0xFF64748B),
-                            fontSize: 24,
+                            fontSize: 16,
                             height: 1.1,
-                            fontWeight: FontWeight.w400,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -9301,68 +9347,88 @@ class _HeldTicketsSheet extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(28, 16, 28, 0),
-              child: _OrdersModeTabs(heldCount: tickets.length),
+              padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+              child: _OrdersModeTabs(heldCount: widget.tickets.length),
             ),
-            const Divider(height: 24, color: Color(0xFFE5E7EB)),
+            const Divider(height: 20, color: Color(0xFFE5E7EB)),
             Padding(
-              padding: const EdgeInsets.fromLTRB(28, 0, 28, 14),
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
               child: Column(
                 children: [
-                  const Row(
+                  Row(
                     children: [
                       Expanded(
-                        child: _OrdersFilterChip(label: 'Today', active: true),
+                        child: _OrdersFilterChip(
+                          label: 'Today',
+                          active: _filter == _OrdersFilter.today,
+                          onTap: () =>
+                              setState(() => _filter = _OrdersFilter.today),
+                        ),
                       ),
-                      SizedBox(width: 12),
-                      Expanded(child: _OrdersFilterChip(label: 'Unpaid')),
-                      SizedBox(width: 12),
-                      Expanded(child: _OrdersFilterChip(label: '7 days')),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _OrdersFilterChip(
+                          label: 'Unpaid',
+                          active: _filter == _OrdersFilter.unpaid,
+                          onTap: () =>
+                              setState(() => _filter = _OrdersFilter.unpaid),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _OrdersFilterChip(
+                          label: '7 days',
+                          active: _filter == _OrdersFilter.sevenDays,
+                          onTap: () =>
+                              setState(() => _filter = _OrdersFilter.sevenDays),
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   TextField(
-                    readOnly: true,
+                    controller: _searchController,
+                    onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
                       hintText: 'Search order #, customer, table...',
                       hintStyle: const TextStyle(
                         color: Color(0xFF64748B),
-                        fontSize: 24,
+                        fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
                       prefixIcon: const Icon(
                         Icons.search,
-                        size: 30,
+                        size: 22,
                         color: Color(0xFF94A3B8),
                       ),
                       filled: true,
                       fillColor: Colors.white,
                       contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 18,
+                        horizontal: 14,
+                        vertical: 12,
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                         borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                         borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  _OrdersSummaryRow(tickets: tickets, money: money),
+                  const SizedBox(height: 14),
+                  _OrdersSummaryRow(tickets: tickets, money: widget.money),
                 ],
               ),
             ),
             Expanded(
               child: tickets.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
-                        'No held tickets. Use Park to save a draft for later.',
+                        _emptyOrdersMessage(_filter),
                         textAlign: TextAlign.center,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Color(0xFF64748B),
                           fontSize: 16,
                           height: 1.35,
@@ -9371,13 +9437,16 @@ class _HeldTicketsSheet extends StatelessWidget {
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(22, 8, 22, 22),
+                      padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
                       itemCount: tickets.length,
                       separatorBuilder: (context, index) =>
-                          const SizedBox(height: 22),
+                          const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final ticket = tickets[index];
-                        return _HeldTicketCard(ticket: ticket, money: money);
+                        return _HeldTicketCard(
+                          ticket: ticket,
+                          money: widget.money,
+                        );
                       },
                     ),
             ),
@@ -9389,7 +9458,9 @@ class _HeldTicketsSheet extends StatelessWidget {
                 border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
               ),
               child: Text(
-                '1-${tickets.length} of ${tickets.length}',
+                tickets.isEmpty
+                    ? '0 of ${widget.tickets.length}'
+                    : '1-${tickets.length} of ${widget.tickets.length}',
                 style: const TextStyle(
                   color: Color(0xFF94A3B8),
                   fontSize: 13,
@@ -9412,11 +9483,11 @@ class _OrdersModeTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 90,
-      padding: const EdgeInsets.all(8),
+      height: 66,
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
@@ -9481,15 +9552,15 @@ class _OrdersModeTab extends StatelessWidget {
             label,
             style: TextStyle(
               color: active ? const Color(0xFF0F172A) : const Color(0xFF64748B),
-              fontSize: 26,
+              fontSize: 18,
               fontWeight: FontWeight.w900,
             ),
           ),
           if (count != null) ...[
             const SizedBox(width: 12),
             Container(
-              width: 34,
-              height: 34,
+              width: 26,
+              height: 26,
               alignment: Alignment.center,
               decoration: const BoxDecoration(
                 color: Color(0xFFF59E0B),
@@ -9499,7 +9570,7 @@ class _OrdersModeTab extends StatelessWidget {
                 count.toString(),
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 18,
+                  fontSize: 14,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -9512,35 +9583,48 @@ class _OrdersModeTab extends StatelessWidget {
 }
 
 class _OrdersFilterChip extends StatelessWidget {
-  const _OrdersFilterChip({required this.label, this.active = false});
+  const _OrdersFilterChip({
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
 
   final String label;
+  final VoidCallback onTap;
   final bool active;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 56,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: active ? Colors.white : const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: active
-            ? [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ]
-            : null,
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF0F172A),
-          fontSize: 20,
-          fontWeight: FontWeight.w900,
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Ink(
+        height: 44,
+        decoration: BoxDecoration(
+          color: active ? Colors.white : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: active ? const Color(0xFFCBD5E1) : Colors.transparent,
+          ),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ),
       ),
     );
@@ -9555,7 +9639,10 @@ class _OrdersSummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = tickets.fold<double>(0, (sum, ticket) => sum + ticket.total);
+    final unpaidCount = tickets.where(_isTicketUnpaid).length;
+    final paidTotal = tickets
+        .where((ticket) => !_isTicketUnpaid(ticket))
+        .fold<double>(0, (sum, ticket) => sum + ticket.total);
     return Row(
       children: [
         Expanded(
@@ -9567,19 +9654,19 @@ class _OrdersSummaryRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 14),
-        const Expanded(
+        Expanded(
           child: _OrdersSummaryTile(
             label: 'UNPAID',
-            value: '0',
-            background: Color(0xFFFFFBEB),
-            valueColor: Color(0xFF7C2D12),
+            value: unpaidCount.toString(),
+            background: const Color(0xFFFFFBEB),
+            valueColor: const Color(0xFF7C2D12),
           ),
         ),
         const SizedBox(width: 14),
         Expanded(
           child: _OrdersSummaryTile(
             label: 'PAID TOTAL',
-            value: money.format(total),
+            value: money.format(paidTotal),
             background: const Color(0xFFECFDF5),
             valueColor: const Color(0xFF047857),
           ),
@@ -9605,7 +9692,7 @@ class _OrdersSummaryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 82,
+      height: 64,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: background,
@@ -9618,18 +9705,18 @@ class _OrdersSummaryTile extends StatelessWidget {
             label,
             style: const TextStyle(
               color: Color(0xFF94A3B8),
-              fontSize: 17,
+              fontSize: 13,
               fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: valueColor,
-              fontSize: 24,
+              fontSize: 19,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -9654,19 +9741,19 @@ class _HeldTicketCard extends StatelessWidget {
     final paymentStatus = _paymentStatusLabel(ticket.paymentStatus);
     final due = ticket.amountDue > 0 ? ticket.amountDue : ticket.total;
     return InkWell(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(16),
       onTap: () => Navigator.of(context).pop(ticket),
       child: Ink(
-        padding: const EdgeInsets.fromLTRB(26, 24, 26, 26),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFF59E0B), width: 1.4),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
@@ -9677,7 +9764,7 @@ class _HeldTicketCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _OrderTokenBadge(token: ticket.token),
-                const SizedBox(width: 22),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -9692,7 +9779,7 @@ class _HeldTicketCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Color(0xFF0F172A),
-                                fontSize: 26,
+                                fontSize: 19,
                                 letterSpacing: 1.1,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -9702,21 +9789,21 @@ class _HeldTicketCard extends StatelessWidget {
                             money.format(ticket.total),
                             style: const TextStyle(
                               color: Color(0xFF059669),
-                              fontSize: 28,
+                              fontSize: 21,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           const Icon(
                             Icons.restaurant_menu,
                             color: Color(0xFF64748B),
-                            size: 22,
+                            size: 17,
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               '${_orderTypeLabel(ticket.orderType)}${ticket.table == null ? '' : ' · ${ticket.table!.name}'} · Pos',
@@ -9724,14 +9811,14 @@ class _HeldTicketCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Color(0xFF64748B),
-                                fontSize: 21,
+                                fontSize: 15,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 10),
                       Wrap(
                         spacing: 10,
                         runSpacing: 8,
@@ -9795,13 +9882,13 @@ class _HeldTicketCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 14),
             Container(
-              height: 72,
-              padding: const EdgeInsets.symmetric(horizontal: 22),
+              height: 54,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
               child: Row(
@@ -9812,11 +9899,11 @@ class _HeldTicketCard extends StatelessWidget {
                         : '${firstLine.quantity}x',
                     style: const TextStyle(
                       color: Color(0xFF94A3B8),
-                      fontSize: 24,
+                      fontSize: 18,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       firstLine?.item.name ?? 'Held ticket',
@@ -9824,7 +9911,7 @@ class _HeldTicketCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Color(0xFF0F172A),
-                        fontSize: 24,
+                        fontSize: 17,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -9833,7 +9920,7 @@ class _HeldTicketCard extends StatelessWidget {
                     money.format(firstLine?.total ?? ticket.total),
                     style: const TextStyle(
                       color: Color(0xFF475569),
-                      fontSize: 20,
+                      fontSize: 16,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -9864,12 +9951,12 @@ class _HeldTicketCard extends StatelessWidget {
                   ),
                 ),
             ],
-            const SizedBox(height: 24),
+            const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
                   child: SizedBox(
-                    height: 64,
+                    height: 48,
                     child: FilledButton.icon(
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
@@ -9882,12 +9969,12 @@ class _HeldTicketCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         textStyle: const TextStyle(
-                          fontSize: 21,
+                          fontSize: 16,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       onPressed: () => Navigator.of(context).pop(ticket),
-                      icon: const Icon(Icons.check, size: 26),
+                      icon: const Icon(Icons.check, size: 20),
                       label: Text(
                         ticket.canCollectPayment ? 'Collect payment' : 'Accept',
                       ),
@@ -9897,7 +9984,7 @@ class _HeldTicketCard extends StatelessWidget {
                 const SizedBox(width: 14),
                 Expanded(
                   child: SizedBox(
-                    height: 64,
+                    height: 48,
                     child: FilledButton.icon(
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF4F46E5),
@@ -9910,12 +9997,12 @@ class _HeldTicketCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         textStyle: const TextStyle(
-                          fontSize: 21,
+                          fontSize: 16,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       onPressed: () => Navigator.of(context).pop(ticket),
-                      icon: const Icon(Icons.refresh, size: 26),
+                      icon: const Icon(Icons.refresh, size: 20),
                       label: const Text('Resume'),
                     ),
                   ),
@@ -11041,6 +11128,43 @@ String _paymentStatusLabel(String? value) {
   }
   final normalized = text.replaceAll('_', ' ').toUpperCase();
   return normalized == 'PENDING' ? 'PAYMENT PENDING' : normalized;
+}
+
+bool _isSameDate(DateTime a, DateTime b) {
+  final left = a.toLocal();
+  final right = b.toLocal();
+  return left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
+}
+
+bool _isWithinLastDays(DateTime value, int days, DateTime now) {
+  final local = value.toLocal();
+  final start = DateTime(
+    now.year,
+    now.month,
+    now.day,
+  ).subtract(Duration(days: days - 1));
+  return !local.isBefore(start) && !local.isAfter(now);
+}
+
+bool _isTicketUnpaid(_HeldTicket ticket) {
+  if (ticket.amountDue > 0 || ticket.canCollectPayment) {
+    return true;
+  }
+  final status = ticket.paymentStatus?.trim().toLowerCase();
+  if (status == null || status.isEmpty) {
+    return true;
+  }
+  return status != 'paid' && status != 'settled' && status != 'completed';
+}
+
+String _emptyOrdersMessage(_OrdersFilter filter) {
+  return switch (filter) {
+    _OrdersFilter.today => 'No orders for today.',
+    _OrdersFilter.unpaid => 'No unpaid orders.',
+    _OrdersFilter.sevenDays => 'No orders in the last 7 days.',
+  };
 }
 
 List<Map<String, dynamic>> _firstMapList(
