@@ -10583,9 +10583,17 @@ AsyncValue<List<PosLanguage>> _languagesWithBootstrap(
   AsyncValue<List<PosLanguage>> apiLanguages,
   List<PosLanguage> bootstrapLanguages,
 ) {
+  if (bootstrapLanguages.isNotEmpty) {
+    return AsyncData(
+      _mergePosLanguages([
+        defaultPosLanguage,
+        ...bootstrapLanguages,
+      ], includeDefaults: false),
+    );
+  }
+
   final merged = _mergePosLanguages([
     ...(apiLanguages.asData?.value ?? defaultPosLanguages),
-    ...bootstrapLanguages,
   ]);
   if (merged.length > 1 || apiLanguages.hasValue) {
     return AsyncData(merged);
@@ -10627,7 +10635,7 @@ List<PosLanguage> _languagesFromBootstrap(PosBootstrap bootstrap) {
       ),
     );
   }
-  return _mergePosLanguages(languages);
+  return _mergePosLanguages(languages, includeDefaults: false);
 }
 
 List<PosLanguage> _languagesFromLanguagePayload(Object? value) {
@@ -10642,7 +10650,7 @@ List<PosLanguage> _languagesFromLanguagePayload(Object? value) {
 
 PosLanguage? _languageFromBootstrapValue(Object? value) {
   if (value is String) {
-    final code = value.trim();
+    final code = _posLanguageCode(value);
     if (code.isEmpty) {
       return null;
     }
@@ -10661,7 +10669,8 @@ PosLanguage? _languageFromBootstrapValue(Object? value) {
     'languageCode',
     'slug',
   ]);
-  if (code.isEmpty) {
+  final normalizedCode = _posLanguageCode(code);
+  if (normalizedCode.isEmpty) {
     return null;
   }
   final label = _firstText(map, const [
@@ -10683,26 +10692,57 @@ PosLanguage? _languageFromBootstrapValue(Object? value) {
   ]);
 
   return PosLanguage(
-    code: code,
-    label: label.isEmpty ? _posLanguageName(code) : label,
+    code: normalizedCode,
+    label: label.isEmpty ? _posLanguageName(normalizedCode) : label,
     nativeLabel: nativeLabel.isEmpty ? null : nativeLabel,
   );
 }
 
 List<PosLanguage> _languagesFromTranslations(Object? value) {
+  if (value is Map) {
+    return value.entries
+        .map((entry) {
+          final translation = entry.value;
+          final map = translation is Map
+              ? Map<String, dynamic>.from(translation)
+              : const <String, dynamic>{};
+          final explicitCode = _firstText(map, const [
+            'locale',
+            'language',
+            'language_code',
+            'languageCode',
+            'code',
+          ]);
+          final code = _posLanguageCode(
+            explicitCode.isEmpty ? entry.key.toString() : explicitCode,
+          );
+          if (code.isEmpty) {
+            return null;
+          }
+          return PosLanguage(
+            code: code,
+            label: _posLanguageName(code),
+            nativeLabel: _posLanguageNativeName(code),
+          );
+        })
+        .whereType<PosLanguage>()
+        .toList();
+  }
   if (value is! List) {
     return const [];
   }
   final languages = <PosLanguage>[];
   for (final raw in value.whereType<Map>()) {
     final map = Map<String, dynamic>.from(raw);
-    final code = _firstText(map, const [
-      'locale',
-      'language',
-      'language_code',
-      'languageCode',
-      'code',
-    ]);
+    final code = _posLanguageCode(
+      _firstText(map, const [
+        'locale',
+        'language',
+        'language_code',
+        'languageCode',
+        'code',
+      ]),
+    );
     if (code.isEmpty) {
       continue;
     }
@@ -10729,9 +10769,13 @@ List<PosLanguage> _languagesFromTranslations(Object? value) {
   return languages;
 }
 
-List<PosLanguage> _mergePosLanguages(List<PosLanguage> languages) {
+List<PosLanguage> _mergePosLanguages(
+  List<PosLanguage> languages, {
+  bool includeDefaults = true,
+}) {
   final byCode = <String, PosLanguage>{};
-  for (final language in [...defaultPosLanguages, ...languages]) {
+  final source = [if (includeDefaults) ...defaultPosLanguages, ...languages];
+  for (final language in source) {
     final code = language.code.trim();
     if (code.isNotEmpty) {
       byCode[code.toLowerCase()] = language;
@@ -10750,20 +10794,53 @@ Object? _translatedValue(
     return null;
   }
   final translations = source['translations'];
+  if (translations is Map) {
+    for (final entry in translations.entries) {
+      final keyCode = _posLanguageCode(entry.key.toString());
+      final map = entry.value is Map
+          ? Map<String, dynamic>.from(entry.value as Map)
+          : const <String, dynamic>{};
+      final embeddedCode = _posLanguageCode(
+        _firstText(map, const [
+          'locale',
+          'language',
+          'language_code',
+          'languageCode',
+          'code',
+        ]),
+      );
+      if (!_languageCodeMatches(
+        embeddedCode.isEmpty ? keyCode : embeddedCode,
+        normalized,
+      )) {
+        continue;
+      }
+      for (final key in keys) {
+        final value =
+            _deepValue(map, key) ?? _deepValue(map, 'translation.$key');
+        final text = _nullableString(value);
+        if (text != null) {
+          return text;
+        }
+      }
+    }
+    return null;
+  }
   if (translations is! List) {
     return null;
   }
   for (final raw in translations.whereType<Map>()) {
     final map = Map<String, dynamic>.from(raw);
-    final code = _firstText(map, const [
-      'locale',
-      'language',
-      'language_code',
-      'languageCode',
-      'code',
-    ]).toLowerCase();
-    if (code != normalized &&
-        code.split('-').first != normalized.split('-').first) {
+    final code = _posLanguageCode(
+      _firstText(map, const [
+        'locale',
+        'language',
+        'language_code',
+        'languageCode',
+        'code',
+      ]),
+    );
+    if (!_languageCodeMatches(code, normalized)) {
       continue;
     }
     for (final key in keys) {
@@ -10775,6 +10852,36 @@ Object? _translatedValue(
     }
   }
   return null;
+}
+
+bool _languageCodeMatches(String source, String target) {
+  if (source.isEmpty || target.isEmpty) {
+    return false;
+  }
+  final normalizedSource = _posLanguageCode(source);
+  final normalizedTarget = _posLanguageCode(target);
+  return normalizedSource == normalizedTarget ||
+      normalizedSource.split('-').first == normalizedTarget.split('-').first;
+}
+
+String _posLanguageCode(String value) {
+  final normalized = value.trim().toLowerCase().replaceAll('_', '-');
+  switch (normalized) {
+    case 'english':
+      return 'en';
+    case 'hindi':
+      return 'hi';
+    case 'telugu':
+      return 'te';
+    case 'tamil':
+      return 'ta';
+    case 'kannada':
+      return 'kn';
+    case 'malayalam':
+      return 'ml';
+    default:
+      return normalized;
+  }
 }
 
 String _posLanguageName(String code) {
@@ -10800,6 +10907,23 @@ String _posLanguageName(String code) {
       return 'Malayalam';
     default:
       return code.toUpperCase();
+  }
+}
+
+String? _posLanguageNativeName(String code) {
+  switch (_posLanguageCode(code)) {
+    case 'hi':
+      return 'हिन्दी';
+    case 'te':
+      return 'తెలుగు';
+    case 'ta':
+      return 'தமிழ்';
+    case 'kn':
+      return 'ಕನ್ನಡ';
+    case 'ml':
+      return 'മലയാളം';
+    default:
+      return null;
   }
 }
 
