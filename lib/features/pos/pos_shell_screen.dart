@@ -32,7 +32,6 @@ import '../auth/auth_controller.dart';
 import '../auth/login_screen.dart';
 import '../bootstrap/bootstrap_providers.dart';
 import '../customer_display/presentation/customer_display_page.dart';
-import '../display/kitchen_display_screen.dart';
 import '../terminal/terminal_controller.dart';
 import '../terminal/terminal_selection_screen.dart';
 
@@ -1761,7 +1760,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 1050;
-          const cartWidth = 440.0;
+          const cartWidth = 536.0;
           final ticketItemCount = _cart.fold<int>(
             0,
             (sum, line) => sum + line.quantity,
@@ -1849,8 +1848,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
                   staffName: staffName,
                   onCustomerDisplay: _openCustomerDisplay,
                   onOrders: _openTicketsDrawer,
-                  onKitchenDisplay: () =>
-                      context.go(KitchenDisplayScreen.routePath),
                   onDailyReport: _openDailyReport,
                   darkMode: darkMode,
                   selectedLanguage: selectedLanguage,
@@ -1941,7 +1938,6 @@ class _PosHeader extends StatelessWidget {
     required this.staffName,
     required this.onCustomerDisplay,
     required this.onOrders,
-    required this.onKitchenDisplay,
     required this.onDailyReport,
     required this.darkMode,
     required this.selectedLanguage,
@@ -1957,7 +1953,6 @@ class _PosHeader extends StatelessWidget {
   final String staffName;
   final VoidCallback onCustomerDisplay;
   final VoidCallback onOrders;
-  final VoidCallback onKitchenDisplay;
   final VoidCallback onDailyReport;
   final bool darkMode;
   final PosLanguage selectedLanguage;
@@ -2069,12 +2064,12 @@ class _PosHeader extends StatelessWidget {
                 child: compact || tight
                     ? IconButton(
                         style: iconButtonStyle,
-                        tooltip: 'Daily Reports',
+                        tooltip: 'Day-end reports',
                         onPressed: onDailyReport,
                         icon: const Icon(
-                          Icons.assessment_outlined,
+                          Icons.print_outlined,
                           size: 19,
-                          color: Color(0xFF0F766E),
+                          color: Color(0xFF111827),
                         ),
                       )
                     : ElevatedButton.icon(
@@ -2092,21 +2087,11 @@ class _PosHeader extends StatelessWidget {
                         ),
                         onPressed: onDailyReport,
                         icon: const Icon(
-                          Icons.assessment_outlined,
-                          color: Color(0xFF0F766E),
+                          Icons.print_outlined,
+                          color: Color(0xFF111827),
                         ),
                         label: const Text('Day-end reports'),
                       ),
-              ),
-              const SizedBox(width: 8),
-              _HeaderActionButton(
-                compact: compact || tight,
-                iconButtonStyle: iconButtonStyle,
-                tooltip: 'Kitchen display',
-                label: 'Kitchen',
-                icon: Icons.soup_kitchen_outlined,
-                iconColor: const Color(0xFFF59E0B),
-                onPressed: onKitchenDisplay,
               ),
               const SizedBox(width: 8),
               _HeaderActionButton(
@@ -2914,18 +2899,17 @@ class _PopularItemsStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: SizedBox(
-        height: 178,
+        height: 268,
         child: ListView.separated(
           padding: const EdgeInsets.symmetric(horizontal: 28),
           scrollDirection: Axis.horizontal,
           itemCount: items.length,
           separatorBuilder: (context, index) => const SizedBox(width: 14),
           itemBuilder: (context, index) => SizedBox(
-            width: 146,
+            width: 210,
             child: _ProductCard(
               item: items[index],
               money: money,
-              compact: true,
               selected: selectedItemIds.contains(items[index].id),
               onTap: () => onAdd(items[index]),
             ),
@@ -2995,7 +2979,7 @@ class _ProductGridSliver extends StatelessWidget {
   static const _gap = 18.0;
   static const _minCardWidth = 180.0;
   static const _maxCardWidth = 210.0;
-  static const _cardHeight = 252.0;
+  static const _cardHeight = 268.0;
 
   final List<_CatalogItem> items;
   final NumberFormat money;
@@ -3052,14 +3036,12 @@ class _ProductCard extends StatefulWidget {
     required this.item,
     required this.money,
     required this.onTap,
-    this.compact = false,
     this.selected = false,
   });
 
   final _CatalogItem item;
   final NumberFormat money;
   final VoidCallback onTap;
-  final bool compact;
   final bool selected;
 
   @override
@@ -3081,19 +3063,20 @@ class _ProductCardState extends State<_ProductCard> {
         margin: EdgeInsets.zero,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           side: BorderSide(
             color: active ? const Color(0xFF4F46E5) : const Color(0xFFE5E7EB),
             width: active ? 2 : 1,
           ),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           onTap: widget.onTap,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
+              SizedBox(
+                height: 142,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -3107,60 +3090,80 @@ class _ProductCardState extends State<_ProductCard> {
                       Positioned(
                         top: 10,
                         right: 10,
-                        child: Container(
-                          width: 34,
-                          height: 34,
+                        child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: const Color(0xFF111827),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.18),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                            color: const Color(
+                              0xFF111827,
+                            ).withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(999),
                           ),
-                          child: const Icon(
-                            Icons.add,
-                            color: Colors.white,
-                            size: 20,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.tune, color: Colors.white, size: 13),
+                                SizedBox(width: 4),
+                                Text(
+                                  'OPTIONS',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: _PriceChip(
-                        label: widget.money.format(widget.item.displayPrice),
-                        compact: widget.compact,
-                      ),
-                    ),
                   ],
                 ),
               ),
-              Container(
-                constraints: BoxConstraints(
-                  minHeight: widget.compact ? 68 : 72,
-                ),
-                padding: EdgeInsets.fromLTRB(
-                  14,
-                  widget.compact ? 10 : 12,
-                  12,
-                  10,
-                ),
-                color: const Color(0xFFFFFFFF),
-                child: Text(
-                  widget.item.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: active
-                        ? const Color(0xFF4F46E5)
-                        : const Color(0xFF0F172A),
-                    fontSize: widget.compact ? 13 : 15,
-                    height: 1.15,
-                    fontWeight: FontWeight.w700,
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+                  color: const Color(0xFFFFFFFF),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        widget.item.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: const Color(0xFF1F2937),
+                          fontSize: 15,
+                          height: 1.15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.money.format(widget.item.displayPrice),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: const Color(0xFF4F46E5),
+                                fontSize: 17,
+                                height: 1,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _AddItemControl(hasChoices: widget.item.hasChoices),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -3168,6 +3171,66 @@ class _ProductCardState extends State<_ProductCard> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AddItemControl extends StatelessWidget {
+  const _AddItemControl({required this.hasChoices});
+
+  final bool hasChoices;
+
+  @override
+  Widget build(BuildContext context) {
+    const height = 42.0;
+    if (hasChoices) {
+      return Container(
+        height: height,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF4F46E5),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4F46E5).withValues(alpha: 0.30),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.tune, size: 14, color: Colors.white),
+            const SizedBox(width: 5),
+            const Text(
+              'Choose',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: height,
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFF4F46E5),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withValues(alpha: 0.30),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: const Icon(Icons.add, color: Colors.white, size: 23),
     );
   }
 }
@@ -3381,44 +3444,6 @@ class _VegBadge extends StatelessWidget {
                   ),
                 )
               : Icon(Icons.change_history, size: 12, color: color),
-        ),
-      ),
-    );
-  }
-}
-
-class _PriceChip extends StatelessWidget {
-  const _PriceChip({required this.label, required this.compact});
-
-  final String label;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 9 : 10,
-        vertical: compact ? 3 : 4,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFFFFF),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: const Color(0xFF4F46E5),
-          fontSize: compact ? 12 : 13,
-          fontWeight: FontWeight.w900,
-          height: 1,
         ),
       ),
     );
