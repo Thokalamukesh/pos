@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../auth/login_screen.dart';
+import '../../display/kitchen_display_screen.dart';
 import '../application/customer_display_controller.dart';
 import '../domain/customer_display_models.dart';
 
@@ -68,7 +69,8 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
                         controlsVisible:
                             _controlsVisible || constraints.maxWidth < 900,
                         fullscreen: _fullscreen,
-                        onBackToKitchen: _exitToPos,
+                        onKitchenDisplay: () =>
+                            context.go(KitchenDisplayScreen.routePath),
                         onSetup: () => _showSetupSheet(context, state),
                         onFullscreen: _toggleFullscreen,
                         onLogout: _confirmLogout,
@@ -124,14 +126,6 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
     await SystemChrome.setEnabledSystemUIMode(
       _fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
     );
-  }
-
-  void _exitToPos() {
-    if (context.canPop()) {
-      context.pop();
-      return;
-    }
-    context.go('/pos');
   }
 
   Future<void> _confirmLogout() async {
@@ -215,7 +209,7 @@ class _TopBar extends StatelessWidget {
     required this.compact,
     required this.controlsVisible,
     required this.fullscreen,
-    required this.onBackToKitchen,
+    required this.onKitchenDisplay,
     required this.onSetup,
     required this.onFullscreen,
     required this.onLogout,
@@ -226,7 +220,7 @@ class _TopBar extends StatelessWidget {
   final bool compact;
   final bool controlsVisible;
   final bool fullscreen;
-  final VoidCallback onBackToKitchen;
+  final VoidCallback onKitchenDisplay;
   final VoidCallback onSetup;
   final VoidCallback onFullscreen;
   final VoidCallback onLogout;
@@ -303,7 +297,7 @@ class _TopBar extends StatelessWidget {
           if (!compact) const SizedBox(width: 12),
           _ClockCard(time: time, date: date, compact: compact),
           const SizedBox(width: 10),
-          _ExitDisplayButton(onPressed: onBackToKitchen),
+          _KitchenDisplayButton(onPressed: onKitchenDisplay),
           const SizedBox(width: 10),
           _HoverControls(
             visible: controlsVisible,
@@ -468,15 +462,15 @@ class _HoverControls extends StatelessWidget {
   }
 }
 
-class _ExitDisplayButton extends StatelessWidget {
-  const _ExitDisplayButton({required this.onPressed});
+class _KitchenDisplayButton extends StatelessWidget {
+  const _KitchenDisplayButton({required this.onPressed});
 
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Exit order board',
+      message: 'Kitchen display',
       child: SizedBox(
         height: 46,
         child: OutlinedButton.icon(
@@ -485,15 +479,14 @@ class _ExitDisplayButton extends StatelessWidget {
             foregroundColor: Colors.white,
             side: const BorderSide(color: _DisplayColors.border),
             backgroundColor: const Color(0xFF17171B),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
+            textStyle: const TextStyle(fontWeight: FontWeight.w900),
           ),
-          icon: const Icon(Icons.logout, size: 18),
-          label: const Text(
-            'Exit',
-            style: TextStyle(fontWeight: FontWeight.w900),
-          ),
+          icon: const Icon(Icons.soup_kitchen_outlined, size: 18),
+          label: const Text('Kitchen display'),
         ),
       ),
     );

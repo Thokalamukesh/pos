@@ -154,14 +154,19 @@ class _KitchenDisplayController extends AsyncNotifier<_KitchenDisplayState> {
         .read(_kitchenDisplayRepositoryProvider)
         .bootstrap();
     _selectedKitchenId ??= response.selectedKitchen?.id;
-    final selectedKitchen = _selectedKitchen(response.kitchens);
-    final orders = await ref
+    var selectedKitchen = _selectedKitchen(response.kitchens);
+    final orderResponse = await ref
         .read(_kitchenDisplayRepositoryProvider)
         .orders(kitchenId: selectedKitchen?.id);
+    if (orderResponse.selectedKitchenId != null &&
+        orderResponse.selectedKitchenId != 0) {
+      _selectedKitchenId = orderResponse.selectedKitchenId;
+      selectedKitchen = _selectedKitchen(response.kitchens);
+    }
 
     return response.copyWith(
       selectedKitchen: selectedKitchen,
-      orders: orders,
+      orders: orderResponse.orders,
       lastUpdated: DateTime.now(),
     );
   }
@@ -172,14 +177,19 @@ class _KitchenDisplayController extends AsyncNotifier<_KitchenDisplayState> {
       return _loadBootstrap();
     }
 
-    final selectedKitchen = _selectedKitchen(current.kitchens);
-    final orders = await ref
+    var selectedKitchen = _selectedKitchen(current.kitchens);
+    final orderResponse = await ref
         .read(_kitchenDisplayRepositoryProvider)
         .orders(kitchenId: selectedKitchen?.id);
+    if (orderResponse.selectedKitchenId != null &&
+        orderResponse.selectedKitchenId != 0) {
+      _selectedKitchenId = orderResponse.selectedKitchenId;
+      selectedKitchen = _selectedKitchen(current.kitchens);
+    }
 
     return current.copyWith(
       selectedKitchen: selectedKitchen,
-      orders: orders,
+      orders: orderResponse.orders,
       lastUpdated: DateTime.now(),
     );
   }
@@ -262,13 +272,16 @@ class _KitchenDisplayRepository {
     );
   }
 
-  Future<List<_KitchenOrder>> orders({int? kitchenId}) async {
+  Future<_KitchenOrdersResponse> orders({int? kitchenId}) async {
     final response = await _get(
       '${AppConfig.apiPrefix}/kitchen/orders',
       queryParameters: kitchenId == null ? null : {'kitchen': kitchenId},
     );
     final data = _dataMap(response);
-    return _ordersFrom(data['orders'] ?? data['orders_by_status'] ?? data);
+    return _KitchenOrdersResponse(
+      selectedKitchenId: _nullableInt(data['selected_kitchen_id']),
+      orders: _ordersFrom(data['orders'] ?? data['orders_by_status'] ?? data),
+    );
   }
 
   Future<void> updateStatus(_KitchenOrder order, _KitchenStatus status) async {
@@ -324,6 +337,16 @@ class _KitchenDisplayRepository {
       throw AppException.fromDio(error);
     }
   }
+}
+
+class _KitchenOrdersResponse {
+  const _KitchenOrdersResponse({
+    required this.orders,
+    required this.selectedKitchenId,
+  });
+
+  final List<_KitchenOrder> orders;
+  final int? selectedKitchenId;
 }
 
 class _KitchenDisplayBody extends StatelessWidget {
@@ -484,8 +507,8 @@ class _KitchenTopBar extends StatelessWidget {
           _KitchenClock(time: time, date: date),
           const SizedBox(width: 10),
           _KitchenToolbarButton(
-            tooltip: 'Order board',
-            label: 'Order board',
+            tooltip: 'Customer board',
+            label: 'Customer board',
             icon: Icons.connected_tv_outlined,
             onPressed: onCustomerBoard,
           ),
@@ -1654,9 +1677,19 @@ class _Kitchen {
   final bool isSelected;
 
   factory _Kitchen.fromJson(Map<String, dynamic> json) {
+    final name = _stringValue(
+      json['name'] ?? json['title'],
+      fallback: 'Kitchen',
+    );
+    final counterName = _stringValue(
+      json['counter_name'] ?? json['counterName'],
+    );
+
     return _Kitchen(
       id: _intValue(json['id']),
-      name: _stringValue(json['name'] ?? json['title'], fallback: 'Kitchen'),
+      name: counterName.isEmpty || counterName == name
+          ? name
+          : '$name - $counterName',
       isSelected: json['is_selected'] == true || json['selected'] == true,
     );
   }
@@ -1703,11 +1736,22 @@ class _KitchenOrder {
 
   factory _KitchenOrder.fromJson(Map<String, dynamic> json) {
     final items = _listOfMaps(
-      json['items'] ?? json['order_items'],
+      json['items'] ??
+          json['order_items'] ??
+          json['orderItems'] ??
+          _deepValue(json, 'order.items') ??
+          _deepValue(json, 'ticket.items') ??
+          _deepValue(json, 'kitchen_ticket.items') ??
+          _deepValue(json, 'kitchenTicket.items'),
     ).map(_KitchenOrderItem.fromJson).toList();
 
     return _KitchenOrder(
-      id: _intValue(json['id'] ?? json['order_id'] ?? json['orderId']),
+      id: _intValue(
+        json['id'] ??
+            json['order_id'] ??
+            json['orderId'] ??
+            _deepValue(json, 'order.id'),
+      ),
       ticketId: _intValue(
         json['ticket_id'] ??
             json['ticketId'] ??
@@ -1718,14 +1762,32 @@ class _KitchenOrder {
             _deepValue(json, 'kitchenTicket.id'),
       ),
       token: _stringValue(
-        json['token'] ?? json['token_no'] ?? json['display_token'],
+        json['token'] ??
+            json['token_no'] ??
+            json['tokenNo'] ??
+            json['display_token'] ??
+            json['displayToken'] ??
+            json['ticket_token'] ??
+            json['ticketToken'] ??
+            json['kitchen_token'] ??
+            json['kitchenToken'] ??
+            _deepValue(json, 'ticket.token') ??
+            _deepValue(json, 'kitchen_ticket.token') ??
+            _deepValue(json, 'kitchenTicket.token'),
         fallback: '-',
       ),
       orderNumber: _stringValue(
-        json['order_number'] ?? json['orderNumber'] ?? json['number'],
+        json['order_number'] ??
+            json['orderNumber'] ??
+            json['number'] ??
+            _deepValue(json, 'order.order_number') ??
+            _deepValue(json, 'order.orderNumber') ??
+            _deepValue(json, 'order.number'),
         fallback: '-',
       ),
-      status: _KitchenStatus.fromApi(json['status']),
+      status: _KitchenStatus.fromApi(
+        json['status'] ?? json['kitchen_status'] ?? json['kitchenStatus'],
+      ),
       kitchenPriority: _intValue(
         json['kitchen_priority'] ?? json['kitchenPriority'] ?? json['priority'],
       ),
@@ -1908,11 +1970,58 @@ List<_KitchenOrder> _ordersFrom(Object? value) {
     return _listOfMaps(value).map(_KitchenOrder.fromJson).toList();
   }
   if (value is Map) {
-    return value.values
-        .whereType<List>()
-        .expand(_listOfMaps)
-        .map(_KitchenOrder.fromJson)
-        .toList();
+    final orders = <_KitchenOrder>[];
+    final groups = Map<String, dynamic>.from(value);
+
+    for (final entry in groups.entries) {
+      final status = entry.key;
+      final groupValue = entry.value;
+      if (groupValue is List) {
+        orders.addAll(
+          _listOfMaps(groupValue).map(
+            (raw) => _KitchenOrder.fromJson({
+              ...raw,
+              if (raw['status'] == null &&
+                  raw['kitchen_status'] == null &&
+                  raw['kitchenStatus'] == null)
+                'status': status,
+            }),
+          ),
+        );
+      } else if (groupValue is Map) {
+        final group = Map<String, dynamic>.from(groupValue);
+        final nested =
+            group['orders'] ??
+            group['tickets'] ??
+            group['data'] ??
+            group['items'];
+        if (nested is List) {
+          orders.addAll(
+            _listOfMaps(nested).map(
+              (raw) => _KitchenOrder.fromJson({
+                ...raw,
+                if (raw['status'] == null &&
+                    raw['kitchen_status'] == null &&
+                    raw['kitchenStatus'] == null)
+                  'status': status,
+              }),
+            ),
+          );
+        } else {
+          orders.add(
+            _KitchenOrder.fromJson({
+              ...group,
+              if (group['status'] == null &&
+                  group['kitchen_status'] == null &&
+                  group['kitchenStatus'] == null)
+                'status': status,
+            }),
+          );
+        }
+      }
+    }
+
+    return orders;
   }
   return const [];
 }
@@ -1944,6 +2053,16 @@ int _intValue(Object? value, {int fallback = 0}) {
     return value.toInt();
   }
   return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+int? _nullableInt(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '');
 }
 
 String _errorMessage(Object error) {
