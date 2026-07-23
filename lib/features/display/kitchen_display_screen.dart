@@ -439,9 +439,10 @@ class _KitchenTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           _KitchenToolbarButton(
-            tooltip: 'Refresh',
-            label: 'Refresh',
+            tooltip: 'Update orders',
+            label: 'Update',
             icon: Icons.refresh,
+            primary: true,
             onPressed: onRefresh,
           ),
           const SizedBox(width: 10),
@@ -513,12 +514,14 @@ class _KitchenToolbarButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onPressed,
+    this.primary = false,
   });
 
   final String tooltip;
   final String label;
   final IconData icon;
   final VoidCallback onPressed;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
@@ -529,9 +532,11 @@ class _KitchenToolbarButton extends StatelessWidget {
         child: OutlinedButton.icon(
           onPressed: onPressed,
           style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.text,
-            side: const BorderSide(color: AppColors.borderBright),
-            backgroundColor: AppColors.panel,
+            foregroundColor: primary ? Colors.black : AppColors.text,
+            side: BorderSide(
+              color: primary ? AppColors.gold : AppColors.borderBright,
+            ),
+            backgroundColor: primary ? AppColors.gold : AppColors.panel,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),

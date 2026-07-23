@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../app/app_settings_controller.dart';
 import '../../core/config/app_config.dart';
 import '../../core/errors/app_exception.dart';
 import '../../models/order_models.dart';
@@ -22,6 +23,7 @@ import '../../repositories/printer_repository.dart';
 import '../../repositories/shift_repository.dart';
 import '../../services/fullscreen/fullscreen_service.dart';
 import '../../services/offline_order_sync_service.dart';
+import '../../services/language_api_service.dart';
 import '../../services/pos_beep_sound_service.dart';
 import '../../services/report_browser_print_service.dart';
 import '../../services/smartpos_customer_display_service.dart';
@@ -30,6 +32,7 @@ import '../auth/auth_controller.dart';
 import '../auth/login_screen.dart';
 import '../bootstrap/bootstrap_providers.dart';
 import '../customer_display/presentation/customer_display_page.dart';
+import '../display/kitchen_display_screen.dart';
 import '../terminal/terminal_controller.dart';
 import '../terminal/terminal_selection_screen.dart';
 
@@ -79,7 +82,7 @@ class PosShellScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SizedBox.expand(
         child: bootstrap.when(
           data: (data) => SizedBox.expand(
@@ -141,7 +144,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   bool _orderTypeExpanded = false;
   bool _customerSearchVisible = false;
   bool _orderNoteEditorVisible = false;
-  bool _darkMode = false;
   Map<String, dynamic>? _currentShift;
   List<Map<String, dynamic>>? _menuCategoryData;
   bool _isCharging = false;
@@ -287,6 +289,16 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         _searchController.clear();
       }
     });
+  }
+
+  void _selectLanguage(PosLanguage language) {
+    ref.read(selectedPosLanguageProvider.notifier).state = language;
+    ref.invalidate(posBootstrapProvider);
+    setState(() {
+      _menuCategoryData = null;
+      _selectedProductId = null;
+    });
+    unawaited(_loadMenuCategories());
   }
 
   Future<void> _loadMenuCategories() async {
@@ -1736,6 +1748,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         (categories.isEmpty || _activeCategoryId == categories.first.id);
     final printerConfig = ref.watch(printerConfigProvider).asData?.value;
     final session = ref.watch(authControllerProvider).asData?.value;
+    final selectedLanguage = ref.watch(selectedPosLanguageProvider);
+    final languages = ref.watch(posLanguagesProvider);
+    final themeMode = ref.watch(appThemeModeProvider);
+    final darkMode = themeMode == ThemeMode.dark;
     final staffName = _activeStaffName(
       _currentShift,
       fallback: session?.user.name,
@@ -1824,7 +1840,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
           );
 
           return Theme(
-            data: _darkMode ? AppTheme.dark() : Theme.of(context),
+            data: darkMode ? AppTheme.dark() : Theme.of(context),
             child: Column(
               children: [
                 _PosHeader(
@@ -1832,9 +1848,19 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
                   terminal: widget.terminal,
                   staffName: staffName,
                   onCustomerDisplay: _openCustomerDisplay,
+                  onOrders: _openTicketsDrawer,
+                  onKitchenDisplay: () =>
+                      context.go(KitchenDisplayScreen.routePath),
                   onDailyReport: _openDailyReport,
-                  darkMode: _darkMode,
-                  onToggleTheme: () => setState(() => _darkMode = !_darkMode),
+                  darkMode: darkMode,
+                  selectedLanguage: selectedLanguage,
+                  languages: languages,
+                  onLanguageSelected: _selectLanguage,
+                  onToggleTheme: () {
+                    ref.read(appThemeModeProvider.notifier).state = darkMode
+                        ? ThemeMode.light
+                        : ThemeMode.dark;
+                  },
                   onFullscreen: _toggleFullscreen,
                   onLogout: () async {
                     await ref.read(authControllerProvider.notifier).logout();
@@ -1914,8 +1940,13 @@ class _PosHeader extends StatelessWidget {
     required this.terminal,
     required this.staffName,
     required this.onCustomerDisplay,
+    required this.onOrders,
+    required this.onKitchenDisplay,
     required this.onDailyReport,
     required this.darkMode,
+    required this.selectedLanguage,
+    required this.languages,
+    required this.onLanguageSelected,
     required this.onToggleTheme,
     required this.onFullscreen,
     required this.onLogout,
@@ -1925,8 +1956,13 @@ class _PosHeader extends StatelessWidget {
   final TerminalContext terminal;
   final String staffName;
   final VoidCallback onCustomerDisplay;
+  final VoidCallback onOrders;
+  final VoidCallback onKitchenDisplay;
   final VoidCallback onDailyReport;
   final bool darkMode;
+  final PosLanguage selectedLanguage;
+  final AsyncValue<List<PosLanguage>> languages;
+  final ValueChanged<PosLanguage> onLanguageSelected;
   final VoidCallback onToggleTheme;
   final VoidCallback onFullscreen;
   final VoidCallback onLogout;
@@ -2010,39 +2046,22 @@ class _PosHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              SizedBox(
-                height: 42,
-                child: compact || tight
-                    ? IconButton(
-                        style: iconButtonStyle,
-                        tooltip: 'Order History',
-                        onPressed: onCustomerDisplay,
-                        icon: const Icon(
-                          Icons.connected_tv_outlined,
-                          size: 19,
-                          color: Color(0xFF10B981),
-                        ),
-                      )
-                    : ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          elevation: 2,
-                          shadowColor: const Color(
-                            0xFF10B981,
-                          ).withValues(alpha: 0.20),
-                          foregroundColor: const Color(0xFF111827),
-                          backgroundColor: Colors.white,
-                          side: const BorderSide(color: Color(0xFFE5E7EB)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        onPressed: onCustomerDisplay,
-                        icon: const Icon(
-                          Icons.connected_tv_outlined,
-                          color: Color(0xFF10B981),
-                        ),
-                        label: const Text('Order History'),
-                      ),
+              if (!compact && !tight) ...[
+                _HeaderChip(
+                  icon: Icons.location_on_outlined,
+                  caption: 'Branch',
+                  label: branchName,
+                ),
+                const SizedBox(width: 8),
+              ],
+              _HeaderActionButton(
+                compact: compact || tight,
+                iconButtonStyle: iconButtonStyle,
+                tooltip: 'Orders',
+                label: 'Orders',
+                icon: Icons.confirmation_number_outlined,
+                iconColor: const Color(0xFF111827),
+                onPressed: onOrders,
               ),
               const SizedBox(width: 8),
               SizedBox(
@@ -2076,19 +2095,37 @@ class _PosHeader extends StatelessWidget {
                           Icons.assessment_outlined,
                           color: Color(0xFF0F766E),
                         ),
-                        label: const Text('Reports'),
+                        label: const Text('Day-end reports'),
                       ),
               ),
               const SizedBox(width: 8),
+              _HeaderActionButton(
+                compact: compact || tight,
+                iconButtonStyle: iconButtonStyle,
+                tooltip: 'Kitchen display',
+                label: 'Kitchen',
+                icon: Icons.soup_kitchen_outlined,
+                iconColor: const Color(0xFFF59E0B),
+                onPressed: onKitchenDisplay,
+              ),
+              const SizedBox(width: 8),
+              _HeaderActionButton(
+                compact: compact || tight,
+                iconButtonStyle: iconButtonStyle,
+                tooltip: 'Customer display',
+                label: 'Customer display',
+                icon: Icons.connected_tv_outlined,
+                iconColor: const Color(0xFF4F46E5),
+                onPressed: onCustomerDisplay,
+              ),
+              const SizedBox(width: 8),
               if (!tight) ...[
-                if (!compact) ...[
-                  _HeaderChip(
-                    icon: Icons.location_on_outlined,
-                    caption: 'Branch',
-                    label: branchName,
-                  ),
-                  const SizedBox(width: 8),
-                ],
+                _LanguageMenuButton(
+                  selectedLanguage: selectedLanguage,
+                  languages: languages,
+                  onSelected: onLanguageSelected,
+                ),
+                const SizedBox(width: 8),
                 IconButton(
                   style: iconButtonStyle,
                   tooltip: darkMode ? 'Light mode' : 'Dark mode',
@@ -2138,6 +2175,118 @@ class _PosHeader extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _HeaderActionButton extends StatelessWidget {
+  const _HeaderActionButton({
+    required this.compact,
+    required this.iconButtonStyle,
+    required this.tooltip,
+    required this.label,
+    required this.icon,
+    required this.iconColor,
+    required this.onPressed,
+  });
+
+  final bool compact;
+  final ButtonStyle iconButtonStyle;
+  final String tooltip;
+  final String label;
+  final IconData icon;
+  final Color iconColor;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 42,
+      child: compact
+          ? IconButton(
+              style: iconButtonStyle,
+              tooltip: tooltip,
+              onPressed: onPressed,
+              icon: Icon(icon, size: 19, color: iconColor),
+            )
+          : ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                elevation: 1,
+                foregroundColor: const Color(0xFF111827),
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFFE5E7EB)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: onPressed,
+              icon: Icon(icon, color: iconColor, size: 19),
+              label: Text(label),
+            ),
+    );
+  }
+}
+
+class _LanguageMenuButton extends StatelessWidget {
+  const _LanguageMenuButton({
+    required this.selectedLanguage,
+    required this.languages,
+    required this.onSelected,
+  });
+
+  final PosLanguage selectedLanguage;
+  final AsyncValue<List<PosLanguage>> languages;
+  final ValueChanged<PosLanguage> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final available = languages.asData?.value ?? const [defaultPosLanguage];
+    return PopupMenuButton<PosLanguage>(
+      tooltip: 'Language',
+      onSelected: onSelected,
+      itemBuilder: (context) {
+        return [
+          for (final language in available)
+            PopupMenuItem<PosLanguage>(
+              value: language,
+              child: Row(
+                children: [
+                  Expanded(child: Text(language.displayLabel)),
+                  if (language.code == selectedLanguage.code)
+                    const Icon(Icons.check, size: 18, color: Color(0xFF4F46E5)),
+                ],
+              ),
+            ),
+        ];
+      },
+      child: SizedBox(
+        width: 42,
+        height: 42,
+        child: DecoratedBox(
+          decoration: ShapeDecoration(
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: const BorderSide(color: Color(0xFFE5E7EB)),
+            ),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              const Icon(Icons.translate, size: 20, color: Color(0xFF334155)),
+              if (languages.isLoading)
+                const Positioned(
+                  right: 6,
+                  top: 6,
+                  child: SizedBox.square(
+                    dimension: 8,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -7654,54 +7803,36 @@ class _TablePickerDialog extends StatelessWidget {
           maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 760),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           child: Material(
             color: Colors.white,
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 18, 14, 14),
+                  padding: const EdgeInsets.fromLTRB(18, 18, 14, 16),
                   child: Row(
                     children: [
-                      Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF7ED),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.table_restaurant,
-                          color: Color(0xFFB45309),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
                       const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Select table',
-                              style: TextStyle(
-                                color: Color(0xFF0F172A),
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Assign this dine-in ticket to a table.',
-                              style: TextStyle(
-                                color: Color(0xFF64748B),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          'Select table',
+                          style: TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
                         ),
                       ),
                       IconButton(
                         tooltip: 'Close',
+                        style: IconButton.styleFrom(
+                          foregroundColor: const Color(0xFFEF4444),
+                          backgroundColor: const Color(0xFFFFF7F7),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: const BorderSide(color: Color(0xFFFECACA)),
+                          ),
+                        ),
                         onPressed: () => Navigator.of(context).pop(),
                         icon: const Icon(Icons.close),
                       ),
@@ -7711,8 +7842,34 @@ class _TablePickerDialog extends StatelessWidget {
                 const Divider(height: 1, color: Color(0xFFE5E7EB)),
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
                     children: [
+                      InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pop(const _TablePickerResult(clear: true)),
+                        child: Container(
+                          height: 54,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFF111827),
+                              width: 1.5,
+                              strokeAlign: BorderSide.strokeAlignInside,
+                            ),
+                          ),
+                          child: const Text(
+                            'No table',
+                            style: TextStyle(
+                              color: Color(0xFF111827),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
                       for (final group in groups)
                         if (group.tables.isNotEmpty) ...[
                           Padding(
@@ -7727,8 +7884,8 @@ class _TablePickerDialog extends StatelessWidget {
                             ),
                           ),
                           Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
+                            spacing: 12,
+                            runSpacing: 12,
                             children: [
                               for (final table in group.tables)
                                 _TableChoiceButton(
@@ -7739,39 +7896,6 @@ class _TablePickerDialog extends StatelessWidget {
                           ),
                           const SizedBox(height: 22),
                         ],
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF8FAFC),
-                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
-                  ),
-                  child: Row(
-                    children: [
-                      if (selectedTable != null)
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFFB91C1C),
-                            backgroundColor: Colors.white,
-                            side: const BorderSide(color: Color(0xFFFECACA)),
-                          ),
-                          onPressed: () => Navigator.of(
-                            context,
-                          ).pop(const _TablePickerResult(clear: true)),
-                          icon: const Icon(Icons.close, size: 17),
-                          label: const Text('Clear table'),
-                        ),
-                      const Spacer(),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F46E5),
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Done'),
-                      ),
                     ],
                   ),
                 ),
@@ -7796,10 +7920,24 @@ class _TableChoiceButton extends StatelessWidget {
     final available =
         status.isEmpty ||
         const {'available', 'free', 'open'}.contains(status.toLowerCase());
+    final fill = selected
+        ? const Color(0xFFEFF6FF)
+        : available
+        ? const Color(0xFFECFDF5)
+        : const Color(0xFFFFF7F7);
+    final border = selected
+        ? const Color(0xFF4F46E5)
+        : available
+        ? const Color(0xFFA7F3D0)
+        : const Color(0xFFFECACA);
+    final textColor = available
+        ? const Color(0xFF047857)
+        : const Color(0xFFDC2626);
     return SizedBox(
       width: 178,
+      height: 86,
       child: Material(
-        color: selected ? const Color(0xFFEEF2FF) : Colors.white,
+        color: fill,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
@@ -7809,81 +7947,34 @@ class _TableChoiceButton extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected
-                    ? const Color(0xFF4F46E5)
-                    : const Color(0xFFE2E8F0),
-                width: selected ? 1.6 : 1,
-              ),
-              boxShadow: selected
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
-                        blurRadius: 16,
-                        offset: const Offset(0, 8),
-                      ),
-                    ]
-                  : null,
+              border: Border.all(color: border, width: selected ? 1.8 : 1.5),
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        table.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    if (selected)
-                      const Icon(
-                        Icons.check_circle,
-                        color: Color(0xFF4F46E5),
-                        size: 18,
-                      ),
-                  ],
+                Text(
+                  table.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: selected ? const Color(0xFF4F46E5) : textColor,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.event_seat_outlined,
-                      size: 15,
-                      color: available
-                          ? const Color(0xFF059669)
-                          : const Color(0xFFB45309),
+                if (status.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _humanizeTableStatus(status),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: textColor.withValues(alpha: 0.72),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(width: 5),
-                    Text(
-                      table.capacity > 0 ? '${table.capacity} seats' : 'Table',
-                      style: const TextStyle(
-                        color: Color(0xFF475569),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (status.isNotEmpty)
-                      Text(
-                        _humanizeTableStatus(status),
-                        style: TextStyle(
-                          color: available
-                              ? const Color(0xFF059669)
-                              : const Color(0xFFB45309),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -7911,6 +8002,9 @@ class _ItemOptionsDialogState extends State<_ItemOptionsDialog> {
   @override
   void initState() {
     super.initState();
+    if (widget.item.variants.isNotEmpty) {
+      _selectedVariant = widget.item.variants.first;
+    }
     _noteController.addListener(_refreshNoteCounter);
   }
 
@@ -7996,6 +8090,9 @@ class _ItemOptionsDialogState extends State<_ItemOptionsDialog> {
   }
 
   String? _validationMessage() {
+    if (widget.item.variants.isNotEmpty && _selectedVariant == null) {
+      return 'Choose a variant for ${widget.item.name}.';
+    }
     for (final group in widget.item.modifierGroups) {
       final count = _selectedOptions[group.id]?.length ?? 0;
       if (count < group.minSelections) {
@@ -8103,8 +8200,10 @@ class _ItemOptionsDialogState extends State<_ItemOptionsDialog> {
                   if (widget.item.variants.isNotEmpty) ...[
                     _DialogOptionSection(
                       number: sectionNumber++,
-                      title: 'Size',
-                      meta: 'Optional',
+                      title: 'Variant',
+                      meta: 'Required',
+                      helper: 'Choose one',
+                      isRequired: true,
                       child: _OptionChoiceGrid(
                         children: widget.item.variants.map((variant) {
                           final delta = variant.price - widget.item.price;
@@ -8115,10 +8214,7 @@ class _ItemOptionsDialogState extends State<_ItemOptionsDialog> {
                             multiple: false,
                             onTap: () {
                               setState(() {
-                                _selectedVariant =
-                                    _selectedVariant?.id == variant.id
-                                    ? null
-                                    : variant;
+                                _selectedVariant = variant;
                               });
                             },
                           );
@@ -8544,8 +8640,11 @@ class _HeldTicketsOverlay extends StatelessWidget {
           ),
         ),
         Align(
-          alignment: Alignment.centerRight,
-          child: _HeldTicketsSheet(tickets: tickets, money: money),
+          alignment: Alignment.center,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: _HeldTicketsSheet(tickets: tickets, money: money),
+          ),
         ),
       ],
     );
@@ -8563,14 +8662,18 @@ class _HeldTicketsSheet extends StatelessWidget {
     return Material(
       color: Colors.white,
       elevation: 18,
-      child: SizedBox(
-        width: 560,
-        height: double.infinity,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 640,
+          maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 820),
+        ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              height: 70,
-              padding: const EdgeInsets.fromLTRB(20, 12, 16, 10),
+              padding: const EdgeInsets.fromLTRB(24, 22, 18, 18),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
@@ -8583,20 +8686,20 @@ class _HeldTicketsSheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Open tickets',
+                          'Orders',
                           style: TextStyle(
                             color: Color(0xFF0F172A),
-                            fontSize: 22,
+                            fontSize: 26,
                             height: 1.05,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                         SizedBox(height: 4),
                         Text(
-                          'Held drafts \u00B7 today',
+                          'Held tickets and branch activity',
                           style: TextStyle(
                             color: Color(0xFF64748B),
-                            fontSize: 15,
+                            fontSize: 17,
                             height: 1.1,
                             fontWeight: FontWeight.w400,
                           ),
@@ -8607,6 +8710,10 @@ class _HeldTicketsSheet extends StatelessWidget {
                   IconButton(
                     tooltip: 'Close',
                     onPressed: () => Navigator.of(context).pop(),
+                    style: IconButton.styleFrom(
+                      fixedSize: const Size(42, 42),
+                      foregroundColor: const Color(0xFF0F172A),
+                    ),
                     icon: const Icon(Icons.close, color: Color(0xFF0F172A)),
                   ),
                 ],
@@ -8938,6 +9045,15 @@ class _ItemVariant {
     Map<String, dynamic> json, {
     required double basePrice,
   }) {
+    final name = _stringValue(
+      json['name'] ??
+          json['title'] ??
+          json['label'] ??
+          json['value'] ??
+          json['option_name'] ??
+          json['optionName'],
+      fallback: 'Variant',
+    );
     final priceSource =
         json['price'] ??
         json['selling_price'] ??
@@ -8964,17 +9080,12 @@ class _ItemVariant {
             json['variationId'] ??
             json['item_variant_id'] ??
             json['itemVariantId'] ??
+            json['menu_item_variant_id'] ??
+            json['menuItemVariantId'] ??
             json['uuid'],
+        fallback: name,
       ),
-      name: _stringValue(
-        json['name'] ??
-            json['title'] ??
-            json['label'] ??
-            json['value'] ??
-            json['option_name'] ??
-            json['optionName'],
-        fallback: 'Variant',
-      ),
+      name: name,
       price: priceSource == null
           ? basePrice + adjustment
           : _doubleValue(priceSource, fallback: basePrice),
@@ -9259,8 +9370,13 @@ class _CatalogItem {
                 'itemVariants',
                 'item_variations',
                 'itemVariations',
+                'variant_options',
+                'variantOptions',
                 'variation_options',
                 'variationOptions',
+                'sizes',
+                'size_options',
+                'sizeOptions',
               ])
               .where(_isMenuEntityVisible)
               .map(

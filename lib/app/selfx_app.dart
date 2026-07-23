@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/offline_order_sync_service.dart';
 import '../services/pos_beep_sound_service.dart';
 import '../theme/app_theme.dart';
+import 'app_settings_controller.dart';
 import 'app_router.dart';
 
 class SelfxApp extends ConsumerStatefulWidget {
@@ -28,12 +29,14 @@ class _SelfxAppState extends ConsumerState<SelfxApp> {
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
+    final themeMode = ref.watch(appThemeModeProvider);
 
     return MaterialApp.router(
       title: 'SELFX POS',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
+      themeMode: themeMode,
       routerConfig: router,
     );
   }

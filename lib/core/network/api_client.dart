@@ -2,17 +2,23 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/app_settings_controller.dart';
 import '../config/app_config.dart';
 import '../storage/secure_storage_service.dart';
 
 final dioProvider = Provider<Dio>((ref) {
+  final selectedLanguage = ref.watch(selectedPosLanguageProvider);
   final dio = Dio(
     BaseOptions(
       baseUrl: AppConfig.baseUrl,
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(seconds: 30),
       sendTimeout: kIsWeb ? null : const Duration(seconds: 30),
-      headers: const {'Accept': 'application/json'},
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Language': selectedLanguage.code,
+        'X-Locale': selectedLanguage.code,
+      },
     ),
   );
 

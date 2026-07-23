@@ -143,6 +143,13 @@ class AppTheme {
         filled: true,
         isDense: true,
       ),
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStateProperty.all(const Color(0xFF4F46E5)),
+        trackColor: WidgetStateProperty.all(const Color(0xFFE2E8F0)),
+        thickness: WidgetStateProperty.all(8),
+        radius: const Radius.circular(999),
+        minThumbLength: 52,
+      ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           shape: border,
