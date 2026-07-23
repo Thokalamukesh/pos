@@ -375,6 +375,30 @@ void main() {
     expect(order.items.last.lineTotal, 20);
   });
 
+  test('customer display bootstrap groups preparing and ready tokens', () {
+    final snapshot = CustomerBoardSnapshot.fromJson({
+      'data': {
+        'orders_by_status': {
+          'pending': [
+            {'id': 1, 'token': 12, 'status': 'pending'},
+          ],
+          'preparing': [
+            {'id': 2, 'display_token': 14, 'status': 'preparing'},
+          ],
+          'prepared': [
+            {'id': 3, 'token_no': 15, 'status': 'prepared'},
+          ],
+          'ready_to_collect': [
+            {'id': 4, 'ticket_token': 16, 'status': 'ready_to_collect'},
+          ],
+        },
+      },
+    });
+
+    expect(snapshot.preparing.map((order) => order.token), ['12', '14']);
+    expect(snapshot.ready.map((order) => order.token), ['15', '16']);
+  });
+
   test('receipt printer renderer produces ESC/POS bytes', () async {
     final receipt = ReceiptPrintObject.fromResponse({
       'order': {'id': 88},

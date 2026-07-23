@@ -53,41 +53,80 @@ class CustomerBoardSnapshot {
 
   factory CustomerBoardSnapshot.fromJson(Map<String, dynamic> json) {
     final data = _asMap(json['data']).isNotEmpty ? _asMap(json['data']) : json;
+    final statusGroups = _asMap(
+      data['orders_by_status'] ?? data['ordersByStatus'] ?? data['statuses'],
+    );
     final explicitPreparing = _ordersFrom(
-      data['preparingOrders'] ??
-          data['preparing'] ??
-          data['queued'] ??
-          data['cooking'] ??
-          data['confirmed'] ??
+      data['preparingOrders'] ?? data['preparing'] ?? const [],
+    );
+    final groupedPreparing = _ordersFromStatusGroups(statusGroups, const [
+      'new',
+      'pending',
+      'accepted',
+      'confirmed',
+      'queued',
+      'queue',
+      'cooking',
+      'preparing',
+      'in_progress',
+    ]);
+    final explicitReady = _ordersFrom(
+      data['readyOrders'] ??
+          data['ready'] ??
+          data['prepared'] ??
+          data['ready_to_collect'] ??
           const [],
     );
-    final explicitReady = _ordersFrom(
-      data['readyOrders'] ?? data['ready'] ?? const [],
-    );
-    final allOrders = _ordersFrom(
-      data['orders'] ??
+    final groupedReady = _ordersFromStatusGroups(statusGroups, const [
+      'ready',
+      'prepared',
+      'ready_to_collect',
+      'ready_for_pickup',
+      'completed_kitchen',
+      'done',
+    ]);
+    final preparingOrders = _dedupeOrders([
+      ...explicitPreparing,
+      ...groupedPreparing,
+      ..._ordersFrom(data['queued']),
+      ..._ordersFrom(data['cooking']),
+      ..._ordersFrom(data['confirmed']),
+      ..._ordersFrom(data['pending']),
+    ]);
+    final readyOrders = _dedupeOrders([...explicitReady, ...groupedReady]);
+    final historyFromApi = _ordersFrom(
+      data['history'] ??
+          data['order_history'] ??
+          data['orderHistory'] ??
           data['recent_orders'] ??
           data['recentOrders'] ??
-          data['items'] ??
           const [],
     );
+    final allOrders = _ordersFrom(data['orders'] ?? data['items'] ?? const []);
 
-    if (allOrders.isEmpty) {
+    if (allOrders.isEmpty && historyFromApi.isEmpty) {
       final history = <CustomerDisplayOrder>[
-        ...explicitReady,
-        ...explicitPreparing,
+        ...readyOrders,
+        ...preparingOrders,
       ];
       return CustomerBoardSnapshot(
-        preparing: explicitPreparing.where((order) => !order.isHidden).toList(),
-        ready: explicitReady.where((order) => !order.isHidden).toList(),
+        preparing: preparingOrders.where((order) => !order.isHidden).toList(),
+        ready: readyOrders.where((order) => !order.isHidden).toList(),
         history: history,
       );
     }
 
+    final mergedOrders = _dedupeOrders([...allOrders, ...historyFromApi]);
     return CustomerBoardSnapshot(
-      preparing: allOrders.where((order) => order.isPreparing).toList(),
-      ready: allOrders.where((order) => order.isReady).toList(),
-      history: allOrders,
+      preparing: _dedupeOrders([
+        ...preparingOrders,
+        ...mergedOrders.where((order) => order.isPreparing),
+      ]),
+      ready: _dedupeOrders([
+        ...readyOrders,
+        ...mergedOrders.where((order) => order.isReady),
+      ]),
+      history: mergedOrders,
     );
   }
 }
@@ -113,7 +152,16 @@ class CustomerDisplayOrder {
   final String currency;
   final DateTime? updatedAt;
 
-  bool get isReady => _normalizedStatus == 'ready';
+  bool get isReady {
+    return const {
+      'ready',
+      'prepared',
+      'ready_to_collect',
+      'ready_for_pickup',
+      'completed_kitchen',
+      'done',
+    }.contains(_normalizedStatus);
+  }
 
   bool get isPreparing {
     return const {
@@ -125,6 +173,7 @@ class CustomerDisplayOrder {
       'confirmed',
       'accepted',
       'in_progress',
+      'started',
     }.contains(_normalizedStatus);
   }
 
@@ -148,6 +197,8 @@ class CustomerDisplayOrder {
         json['tokenNumber'] ??
         json['token_number'] ??
         json['display_token'] ??
+        json['ticket_token'] ??
+        json['ticketToken'] ??
         json['number'] ??
         '-';
     return CustomerDisplayOrder(
@@ -161,7 +212,14 @@ class CustomerDisplayOrder {
                   '-')
               .toString(),
       token: tokenValue.toString(),
-      status: (json['status'] ?? '').toString(),
+      status:
+          (json['status'] ??
+                  json['kitchen_status'] ??
+                  json['kitchenStatus'] ??
+                  json['display_status'] ??
+                  json['displayStatus'] ??
+                  '')
+              .toString(),
       items: _cartItemsFrom(
         _firstValue(json, const [
           'items',
@@ -357,6 +415,43 @@ List<CustomerDisplayOrder> _ordersFrom(dynamic value) {
       .whereType<Map>()
       .map((item) => CustomerDisplayOrder.fromJson(Map.from(item)))
       .toList();
+}
+
+List<CustomerDisplayOrder> _ordersFromStatusGroups(
+  Map<String, dynamic> groups,
+  List<String> keys,
+) {
+  final orders = <CustomerDisplayOrder>[];
+  for (final key in keys) {
+    final value = groups[key] ?? groups[_camelCase(key)];
+    orders.addAll(_ordersFrom(value));
+  }
+  return _dedupeOrders(orders);
+}
+
+List<CustomerDisplayOrder> _dedupeOrders(List<CustomerDisplayOrder> orders) {
+  final byKey = <String, CustomerDisplayOrder>{};
+  for (final order in orders) {
+    final key = order.id.isNotEmpty && order.id != '-'
+        ? order.id
+        : '${order.token}:${order.orderNumber}';
+    byKey[key] = order;
+  }
+  return byKey.values.toList();
+}
+
+String _camelCase(String value) {
+  final parts = value.split('_');
+  if (parts.length <= 1) {
+    return value;
+  }
+  return parts.first +
+      parts.skip(1).map((part) {
+        if (part.isEmpty) {
+          return '';
+        }
+        return part[0].toUpperCase() + part.substring(1);
+      }).join();
 }
 
 List<CustomerCartItem> _cartItemsFrom(dynamic value) {

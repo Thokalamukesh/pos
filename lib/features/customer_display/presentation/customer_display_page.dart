@@ -59,7 +59,6 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
             SafeArea(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final history = state.orderHistory;
                   return Column(
                     children: [
                       _TopBar(
@@ -74,6 +73,7 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
                         onFullscreen: _toggleFullscreen,
                         onLogout: _confirmLogout,
                       ),
+                      const _InstructionBand(),
                       if (state.errorMessage != null)
                         _ErrorBand(
                           message: state.errorMessage!,
@@ -87,8 +87,8 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
                             constraints.maxWidth < 900 ? 12 : 18,
                           ),
                           child: _OrderHistoryPanel(
-                            orders: history,
-                            lastUpdated: state.lastUpdated,
+                            preparing: state.preparing,
+                            ready: state.ready,
                           ),
                         ),
                       ),
@@ -564,91 +564,190 @@ class _ErrorBand extends StatelessWidget {
   }
 }
 
-class _OrderHistoryPanel extends StatelessWidget {
-  const _OrderHistoryPanel({required this.orders, required this.lastUpdated});
+class _InstructionBand extends StatelessWidget {
+  const _InstructionBand();
 
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 58,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: _DisplayColors.background,
+        border: Border(bottom: BorderSide(color: _DisplayColors.border)),
+      ),
+      child: const Text(
+        'Watch for your token number. When it appears under Ready, please collect your order at the counter.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Color(0xFFB7B4BE),
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _OrderHistoryPanel extends StatelessWidget {
+  const _OrderHistoryPanel({required this.preparing, required this.ready});
+
+  final List<CustomerDisplayOrder> preparing;
+  final List<CustomerDisplayOrder> ready;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 900;
+        final children = [
+          Expanded(
+            child: _TokenColumnPanel(
+              title: 'PREPARING',
+              subtitle: 'Your order is being made',
+              orders: preparing,
+              color: _DisplayColors.orange,
+              icon: Icons.bakery_dining_outlined,
+              ready: false,
+            ),
+          ),
+          Expanded(
+            child: _TokenColumnPanel(
+              title: 'READY TO COLLECT',
+              subtitle: 'Please pick up at the counter',
+              orders: ready,
+              color: _DisplayColors.mint,
+              icon: Icons.check_circle_outline_rounded,
+              ready: true,
+            ),
+          ),
+        ];
+        if (compact) {
+          return Column(
+            children: [children[1], const SizedBox(height: 12), children[0]],
+          );
+        }
+        return Row(
+          children: [children[0], const SizedBox(width: 28), children[1]],
+        );
+      },
+    );
+  }
+}
+
+class _TokenColumnPanel extends StatelessWidget {
+  const _TokenColumnPanel({
+    required this.title,
+    required this.subtitle,
+    required this.orders,
+    required this.color,
+    required this.icon,
+    required this.ready,
+  });
+
+  final String title;
+  final String subtitle;
   final List<CustomerDisplayOrder> orders;
-  final DateTime? lastUpdated;
+  final Color color;
+  final IconData icon;
+  final bool ready;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: _DisplayColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _DisplayColors.border),
+        color: const Color(0xF20C0C0F),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _withAlpha(color, ready ? 0.34 : 0.28)),
+        boxShadow: [
+          BoxShadow(
+            color: _withAlpha(color, 0.10),
+            blurRadius: 26,
+            offset: const Offset(0, 12),
+          ),
+        ],
       ),
       child: Column(
         children: [
           Container(
-            height: 96,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: const BoxDecoration(
-              color: Color(0xFF101014),
-              border: Border(bottom: BorderSide(color: _DisplayColors.border)),
+            height: 112,
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            decoration: BoxDecoration(
+              color: _withAlpha(color, ready ? 0.12 : 0.16),
+              border: Border(
+                bottom: BorderSide(color: _withAlpha(color, 0.24)),
+              ),
             ),
             child: Row(
               children: [
-                const _HeaderIcon(
-                  icon: Icons.history_rounded,
-                  color: Color(0xFF60A5FA),
-                ),
-                const SizedBox(width: 14),
+                _HeaderIcon(icon: icon, color: color),
+                const SizedBox(width: 18),
                 Expanded(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'ORDER HISTORY',
+                      Text(
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.fade,
                         softWrap: false,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
+                        style: const TextStyle(
+                          color: Color(0xFFF6F1E8),
+                          fontSize: 29,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 9),
                       Text(
-                        _lastUpdatedLabel(lastUpdated),
+                        subtitle,
                         maxLines: 1,
                         overflow: TextOverflow.fade,
                         softWrap: false,
                         style: const TextStyle(
                           color: _DisplayColors.muted,
-                          fontSize: 13,
+                          fontSize: 17,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
                   ),
                 ),
-                _CountBadge(
-                  count: orders.length,
-                  color: const Color(0xFF60A5FA),
-                ),
+                _CountBadge(count: orders.length, color: color),
               ],
             ),
           ),
           Expanded(
             child: orders.isEmpty
-                ? const _EmptyState(
-                    color: Color(0xFF60A5FA),
-                    title: 'No recent orders',
-                    body:
-                        'Orders will appear here as the kitchen updates them.',
-                    icon: Icons.receipt_long_outlined,
+                ? _EmptyState(
+                    color: color,
+                    title: ready ? 'No ready tokens' : 'No preparing tokens',
+                    body: ready
+                        ? 'Ready orders will appear here.'
+                        : 'Preparing orders will appear here.',
+                    icon: icon,
                   )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(14),
-                    itemCount: orders.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      return _HistoryOrderTile(order: orders[index]);
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final crossAxisCount = ready
+                          ? (constraints.maxWidth / 220).floor().clamp(2, 4)
+                          : (constraints.maxWidth / 190).floor().clamp(2, 5);
+                      return GridView.builder(
+                        padding: const EdgeInsets.all(24),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          mainAxisSpacing: 18,
+                          crossAxisSpacing: 18,
+                          childAspectRatio: ready ? 1.08 : 1.32,
+                        ),
+                        itemCount: orders.length,
+                        itemBuilder: (context, index) => _TokenTile(
+                          order: orders[index],
+                          color: color,
+                          ready: ready,
+                        ),
+                      );
                     },
                   ),
           ),
@@ -658,206 +757,63 @@ class _OrderHistoryPanel extends StatelessWidget {
   }
 }
 
-class _HistoryOrderTile extends StatelessWidget {
-  const _HistoryOrderTile({required this.order});
+class _TokenTile extends StatelessWidget {
+  const _TokenTile({
+    required this.order,
+    required this.color,
+    required this.ready,
+  });
 
   final CustomerDisplayOrder order;
+  final Color color;
+  final bool ready;
 
   @override
   Widget build(BuildContext context) {
-    final ready = order.isReady;
-    final color = ready ? _DisplayColors.mint : _DisplayColors.orange;
-    final money = NumberFormat.simpleCurrency(name: order.currency);
-    final itemTotal = order.items.fold<double>(
-      0,
-      (sum, item) => sum + item.lineTotal,
-    );
-    final total = order.total > 0 ? order.total : itemTotal;
-    final visibleItems = order.items.take(4).toList();
-    final hiddenItemCount = order.items.length - visibleItems.length;
     return Container(
-      padding: const EdgeInsets.all(12),
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: _withAlpha(color, ready ? 0.12 : 0.10),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _withAlpha(color, 0.28)),
+        color: const Color(0xFF1A1B20),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _withAlpha(color, ready ? 0.56 : 0.22)),
+        boxShadow: [
+          BoxShadow(
+            color: _withAlpha(color, ready ? 0.14 : 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      child: Column(
-        children: [
-          Row(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 50,
-                height: 54,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: _withAlpha(color, 0.18),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(Icons.receipt_long_rounded, color: color, size: 26),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _shortOrder(order.orderNumber),
-                      maxLines: 1,
-                      overflow: TextOverflow.fade,
-                      softWrap: false,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 7),
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            _statusLabel(order),
-                            maxLines: 1,
-                            overflow: TextOverflow.fade,
-                            softWrap: false,
-                            style: TextStyle(
-                              color: color,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            _updatedLabel(order.updatedAt),
-                            maxLines: 1,
-                            overflow: TextOverflow.fade,
-                            softWrap: false,
-                            style: const TextStyle(
-                              color: _DisplayColors.muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+              Text(
+                'TOKEN',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 5,
                 ),
               ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    ready
-                        ? Icons.check_circle_rounded
-                        : Icons.timelapse_rounded,
-                    color: color,
-                    size: 24,
-                  ),
-                  if (total > 0) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      money.format(total),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ],
+              const SizedBox(height: 16),
+              Text(
+                order.token,
+                maxLines: 1,
+                style: const TextStyle(
+                  color: Color(0xFFF6F1E8),
+                  fontSize: 78,
+                  height: 0.95,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ],
           ),
-          if (visibleItems.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
-              decoration: BoxDecoration(
-                color: const Color(0x6608080A),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _withAlpha(color, 0.16)),
-              ),
-              child: Column(
-                children: [
-                  for (final item in visibleItems)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 28,
-                            alignment: Alignment.center,
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            decoration: BoxDecoration(
-                              color: _withAlpha(color, 0.14),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '${item.quantity}x',
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: color,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              item.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFFEDEDF2),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            money.format(item.lineTotal),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: _DisplayColors.muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (hiddenItemCount > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 5),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          '+ $hiddenItemCount more items',
-                          style: TextStyle(
-                            color: _withAlpha(color, 0.82),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -1165,41 +1121,4 @@ class _DisplayColors {
 Color _withAlpha(Color color, double alpha) {
   final normalized = alpha.clamp(0.0, 1.0);
   return color.withAlpha((normalized * 255).round());
-}
-
-String _shortOrder(String value) {
-  if (value.length <= 10) {
-    return value;
-  }
-  return value.substring(value.length - 10);
-}
-
-String _statusLabel(CustomerDisplayOrder order) {
-  if (order.isReady) {
-    return 'READY';
-  }
-  final status = order.status.trim();
-  if (status.isEmpty) {
-    return 'PREPARING';
-  }
-  return status
-      .replaceAll('_', ' ')
-      .split(RegExp(r'\s+'))
-      .where((part) => part.isNotEmpty)
-      .map((part) => part.toUpperCase())
-      .join(' ');
-}
-
-String _updatedLabel(DateTime? updatedAt) {
-  if (updatedAt == null) {
-    return 'Just now';
-  }
-  return DateFormat('HH:mm').format(updatedAt.toLocal());
-}
-
-String _lastUpdatedLabel(DateTime? lastUpdated) {
-  if (lastUpdated == null) {
-    return 'Live board';
-  }
-  return 'Updated ${DateFormat('HH:mm:ss').format(lastUpdated.toLocal())}';
 }

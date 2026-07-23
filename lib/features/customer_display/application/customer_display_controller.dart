@@ -175,6 +175,7 @@ class CustomerDisplayController extends Notifier<CustomerDisplayState> {
       final board = await repository.pollBoard(
         restaurantSlug: state.restaurantSlug,
         branchId: state.branchId,
+        terminalCode: state.terminalCode,
       );
 
       state = state.copyWith(

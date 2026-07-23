@@ -276,9 +276,9 @@ class _KitchenDisplayRepository {
 
     for (final value in status.apiValues) {
       for (final path in [
-        '${AppConfig.apiPrefix}/kitchen/orders/${order.id}/status',
         if (order.ticketId != 0)
           '${AppConfig.apiPrefix}/kitchen/tickets/${order.ticketId}/status',
+        '${AppConfig.apiPrefix}/kitchen/orders/${order.id}/status',
       ]) {
         try {
           await _dio.patch<Map<String, dynamic>>(path, data: {'status': value});
@@ -1707,13 +1707,15 @@ class _KitchenOrder {
     ).map(_KitchenOrderItem.fromJson).toList();
 
     return _KitchenOrder(
-      id: _intValue(json['id']),
+      id: _intValue(json['id'] ?? json['order_id'] ?? json['orderId']),
       ticketId: _intValue(
         json['ticket_id'] ??
             json['ticketId'] ??
-            json['ticket'] ??
             json['kitchen_ticket_id'] ??
-            json['kitchenTicketId'],
+            json['kitchenTicketId'] ??
+            _deepValue(json, 'ticket.id') ??
+            _deepValue(json, 'kitchen_ticket.id') ??
+            _deepValue(json, 'kitchenTicket.id'),
       ),
       token: _stringValue(
         json['token'] ?? json['token_no'] ?? json['display_token'],
@@ -1877,6 +1879,18 @@ Map<String, dynamic> _asMap(Object? value) {
     return Map<String, dynamic>.from(value);
   }
   return const <String, dynamic>{};
+}
+
+Object? _deepValue(Map<String, dynamic> source, String key) {
+  Object? current = source;
+  for (final part in key.split('.')) {
+    if (current is Map) {
+      current = current[part];
+    } else {
+      return null;
+    }
+  }
+  return current;
 }
 
 List<Map<String, dynamic>> _listOfMaps(Object? value) {

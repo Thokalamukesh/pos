@@ -85,7 +85,21 @@ class CustomerDisplayRepository {
   Future<CustomerBoardSnapshot> pollBoard({
     required String restaurantSlug,
     required int branchId,
+    required String terminalCode,
   }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '${AppConfig.apiPrefix}/display/$branchId/'
+        '${Uri.encodeComponent(terminalCode)}/bootstrap',
+      );
+      return CustomerBoardSnapshot.fromJson(response.data ?? const {});
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status != 401 && status != 403 && status != 404 && status != 405) {
+        throw AppException.fromDio(error);
+      }
+    }
+
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '${AppConfig.apiPrefix}/pos/recent-orders',
