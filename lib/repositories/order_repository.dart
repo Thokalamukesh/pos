@@ -93,6 +93,17 @@ class PosOrderRepository {
     }
   }
 
+  Future<List<Map<String, dynamic>>> fetchRecentOrders({
+    DateTime? dateFrom,
+    DateTime? dateTo,
+  }) async {
+    try {
+      return await _api.fetchRecentOrders(dateFrom: dateFrom, dateTo: dateTo);
+    } on DioException catch (error) {
+      throw AppException.fromDio(error);
+    }
+  }
+
   Future<PosDailyReport> fetchDailyReport() async {
     try {
       return await _api.fetchDailyReport();

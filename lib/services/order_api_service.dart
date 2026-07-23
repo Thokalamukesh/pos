@@ -208,15 +208,21 @@ class PosOrderApiService {
     final response = await _dio.get<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/pos/open-orders',
     );
-    final data = unwrapDataMap(response.data);
-    final value = data['orders'] ?? data['data'] ?? data['items'];
-    if (value is! List) {
-      return const <Map<String, dynamic>>[];
-    }
-    return value
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
+    return _orderRowsFromResponse(response.data);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchRecentOrders({
+    DateTime? dateFrom,
+    DateTime? dateTo,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '${AppConfig.apiPrefix}/pos/recent-orders',
+      queryParameters: <String, dynamic>{
+        if (dateFrom != null) 'date_from': _yyyyMmDd(dateFrom),
+        if (dateTo != null) 'date_to': _yyyyMmDd(dateTo),
+      },
+    );
+    return _orderRowsFromResponse(response.data);
   }
 
   Future<PosDailyReport> fetchDailyReport() async {
@@ -258,6 +264,34 @@ class PosOrderApiService {
     );
     return ReceiptPrintObject.fromResponse(unwrapDataMap(response.data));
   }
+}
+
+List<Map<String, dynamic>> _orderRowsFromResponse(Object? responseData) {
+  if (responseData is! Map) {
+    return const <Map<String, dynamic>>[];
+  }
+  final top = Map<String, dynamic>.from(responseData);
+  final data = top['data'];
+  if (data is List) {
+    return data
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+  final map = data is Map ? Map<String, dynamic>.from(data) : top;
+  final value =
+      map['orders'] ??
+      map['recent_orders'] ??
+      map['recentOrders'] ??
+      map['items'] ??
+      map['data'];
+  if (value is! List) {
+    return const <Map<String, dynamic>>[];
+  }
+  return value
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList();
 }
 
 Map<String, dynamic> _todayReportQueryParameters({String? type}) {

@@ -911,10 +911,42 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
 
   Future<List<_HeldTicket>> _loadTicketsForDrawer() async {
     try {
-      final rows = await ref.read(posOrderRepositoryProvider).fetchOpenOrders();
-      final serverTickets = rows
+      final repository = ref.read(posOrderRepositoryProvider);
+      final openRows = await repository.fetchOpenOrders();
+      var recentRows = const <Map<String, dynamic>>[];
+      try {
+        final now = DateTime.now();
+        recentRows = await repository.fetchRecentOrders(
+          dateFrom: DateTime(
+            now.year,
+            now.month,
+            now.day,
+          ).subtract(const Duration(days: 6)),
+          dateTo: now,
+        );
+      } on Object catch (error) {
+        debugPrint(
+          '[ORDERS][POS] recent orders failed: ${_errorMessage(error)}',
+        );
+      }
+      final serverTickets = [...openRows, ...recentRows]
           .map(_heldTicketFromOrderSummary)
           .whereType<_HeldTicket>()
+          .fold<List<_HeldTicket>>(<_HeldTicket>[], (tickets, ticket) {
+            final key = _heldTicketServerKey(ticket);
+            final existingIndex = tickets.indexWhere(
+              (existing) => _heldTicketServerKey(existing) == key,
+            );
+            if (existingIndex >= 0) {
+              tickets[existingIndex] = _preferredHeldTicket(
+                tickets[existingIndex],
+                ticket,
+              );
+            } else {
+              tickets.add(ticket);
+            }
+            return tickets;
+          })
           .toList();
       final serverIds = serverTickets
           .map((ticket) => ticket.serverOrderId)
@@ -932,6 +964,28 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       _showSnack('Could not load server orders: ${_errorMessage(error)}');
       return List<_HeldTicket>.of(_heldTickets);
     }
+  }
+
+  String _heldTicketServerKey(_HeldTicket ticket) {
+    final id = ticket.serverOrderId;
+    if (id != null) {
+      return 'id:$id';
+    }
+    final number = ticket.orderNumber;
+    if (number != null && number.trim().isNotEmpty) {
+      return 'number:${number.trim()}';
+    }
+    return 'local:${ticket.token}:${ticket.createdAt.toIso8601String()}';
+  }
+
+  _HeldTicket _preferredHeldTicket(_HeldTicket first, _HeldTicket second) {
+    if (first.lines.isEmpty && second.lines.isNotEmpty) {
+      return second;
+    }
+    if (first.totalOverride == null && second.totalOverride != null) {
+      return second;
+    }
+    return first;
   }
 
   Future<void> _resumeHeldTicket(_HeldTicket ticket) async {
@@ -1940,11 +1994,18 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       table: table,
       createdAt: createdAt,
       status: _nullableString(order['status']),
-      paymentStatus: _nullableString(order['payment_status']),
-      canCollectPayment: _nullableBool(order['can_collect_payment']) ?? false,
-      amountDue: _doubleValue(order['amount_due']),
-      totalOverride: order.containsKey('total')
-          ? _doubleValue(order['total'])
+      paymentStatus: _nullableString(
+        order['payment_status'] ?? order['paymentStatus'],
+      ),
+      canCollectPayment:
+          _nullableBool(
+            order['can_collect_payment'] ?? order['canCollectPayment'],
+          ) ??
+          false,
+      amountDue: _doubleValue(order['amount_due'] ?? order['amountDue']),
+      totalOverride:
+          order.containsKey('total') || order.containsKey('grand_total')
+          ? _doubleValue(order['total'] ?? order['grand_total'])
           : null,
     );
   }
