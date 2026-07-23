@@ -10601,6 +10601,10 @@ AsyncValue<List<PosLanguage>> _languagesWithBootstrap(
 List<PosLanguage> _languagesFromBootstrap(PosBootstrap bootstrap) {
   final languages = <PosLanguage>[];
   void collectFromMap(Map<String, dynamic> map) {
+    languages.addAll(_languagesFromLanguagePayload(map['languages']));
+    languages.addAll(_languagesFromLanguagePayload(map['locales']));
+    languages.addAll(_languagesFromLanguagePayload(map['pos_languages']));
+    languages.addAll(_languagesFromLanguagePayload(map['posLanguages']));
     languages.addAll(_languagesFromTranslations(map['translations']));
     for (final item in _firstMapList(map, const [
       'items',
@@ -10612,6 +10616,7 @@ List<PosLanguage> _languagesFromBootstrap(PosBootstrap bootstrap) {
     }
   }
 
+  languages.addAll(_languagesFromLanguagePayload(bootstrap.languages));
   for (final category in bootstrap.categories.whereType<Map>()) {
     collectFromMap(Map<String, dynamic>.from(category));
   }
@@ -10623,6 +10628,65 @@ List<PosLanguage> _languagesFromBootstrap(PosBootstrap bootstrap) {
     );
   }
   return _mergePosLanguages(languages);
+}
+
+List<PosLanguage> _languagesFromLanguagePayload(Object? value) {
+  if (value is! List) {
+    return const [];
+  }
+  return value
+      .map(_languageFromBootstrapValue)
+      .whereType<PosLanguage>()
+      .toList();
+}
+
+PosLanguage? _languageFromBootstrapValue(Object? value) {
+  if (value is String) {
+    final code = value.trim();
+    if (code.isEmpty) {
+      return null;
+    }
+    return PosLanguage(code: code, label: _posLanguageName(code));
+  }
+  if (value is! Map) {
+    return null;
+  }
+
+  final map = Map<String, dynamic>.from(value);
+  final code = _firstText(map, const [
+    'code',
+    'locale',
+    'language',
+    'language_code',
+    'languageCode',
+    'slug',
+  ]);
+  if (code.isEmpty) {
+    return null;
+  }
+  final label = _firstText(map, const [
+    'name',
+    'label',
+    'title',
+    'english_name',
+    'englishName',
+    'language_name',
+    'languageName',
+  ]);
+  final nativeLabel = _firstText(map, const [
+    'native_name',
+    'nativeName',
+    'local_name',
+    'localName',
+    'native_label',
+    'nativeLabel',
+  ]);
+
+  return PosLanguage(
+    code: code,
+    label: label.isEmpty ? _posLanguageName(code) : label,
+    nativeLabel: nativeLabel.isEmpty ? null : nativeLabel,
+  );
 }
 
 List<PosLanguage> _languagesFromTranslations(Object? value) {

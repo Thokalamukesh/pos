@@ -86,6 +86,40 @@ void main() {
     },
   );
 
+  test('POS bootstrap preserves API-provided languages', () {
+    final bootstrap = PosBootstrap.fromJson({
+      'restaurant': {'id': 1, 'name': 'Fixture Restaurant'},
+      'branch': {
+        'id': 1,
+        'name': 'Fixture Branch',
+        'settings': {
+          'languages': {
+            'hi': 'Hindi',
+            'te': {'name': 'Telugu', 'native_name': 'తెలుగు'},
+          },
+        },
+      },
+      'popular_items': [
+        {
+          'id': 5,
+          'name': 'Dosa',
+          'translations': [
+            {'locale': 'ta', 'name': 'தோசை'},
+          ],
+        },
+      ],
+    });
+
+    expect(bootstrap.languages, hasLength(2));
+    expect(bootstrap.languages.first, {'code': 'hi', 'name': 'Hindi'});
+    expect(bootstrap.languages.last, {
+      'code': 'te',
+      'name': 'Telugu',
+      'native_name': 'తెలుగు',
+    });
+    expect(bootstrap.popularItems.single['translations'], isNotEmpty);
+  });
+
   test('create POS order payload uses official payment field names', () {
     final request = CreatePosOrderRequest(
       type: 'takeaway',

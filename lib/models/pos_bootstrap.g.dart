@@ -6,8 +6,8 @@ part of 'pos_bootstrap.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-_PosBootstrap _$PosBootstrapFromJson(Map<String, dynamic> json) =>
-    _PosBootstrap(
+_$PosBootstrapImpl _$$PosBootstrapImplFromJson(Map<String, dynamic> json) =>
+    _$PosBootstrapImpl(
       restaurant: json['restaurant'] == null
           ? null
           : PosRestaurant.fromJson(json['restaurant'] as Map<String, dynamic>),
@@ -40,6 +40,9 @@ _PosBootstrap _$PosBootstrapFromJson(Map<String, dynamic> json) =>
               ?.map((e) => PosTerminal.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const <PosTerminal>[],
+      languages:
+          _readLanguages(json, 'languages') as List<dynamic>? ??
+          const <Object?>[],
       permissions:
           (json['permissions'] as List<dynamic>?)
               ?.map((e) => e as String)
@@ -55,7 +58,7 @@ _PosBootstrap _$PosBootstrapFromJson(Map<String, dynamic> json) =>
           : PosBootstrapSync.fromJson(json['sync'] as Map<String, dynamic>),
     );
 
-Map<String, dynamic> _$PosBootstrapToJson(_PosBootstrap instance) =>
+Map<String, dynamic> _$$PosBootstrapImplToJson(_$PosBootstrapImpl instance) =>
     <String, dynamic>{
       'restaurant': instance.restaurant,
       'branch': instance.branch,
@@ -67,19 +70,22 @@ Map<String, dynamic> _$PosBootstrapToJson(_PosBootstrap instance) =>
       'require_shift_for_pos': instance.requireShiftForPos,
       'pos_blocked': instance.posBlocked,
       'pos_terminals': instance.posTerminals,
+      'languages': instance.languages,
       'permissions': instance.permissions,
       'plan_features': instance.planFeatures,
       'sync': instance.sync,
     };
 
-_PosBootstrapSync _$PosBootstrapSyncFromJson(Map<String, dynamic> json) =>
-    _PosBootstrapSync(
-      menuRevision: json['menu_revision'] as String?,
-      bootstrapRevision: json['bootstrap_revision'] as String?,
-    );
+_$PosBootstrapSyncImpl _$$PosBootstrapSyncImplFromJson(
+  Map<String, dynamic> json,
+) => _$PosBootstrapSyncImpl(
+  menuRevision: json['menu_revision'] as String?,
+  bootstrapRevision: json['bootstrap_revision'] as String?,
+);
 
-Map<String, dynamic> _$PosBootstrapSyncToJson(_PosBootstrapSync instance) =>
-    <String, dynamic>{
-      'menu_revision': instance.menuRevision,
-      'bootstrap_revision': instance.bootstrapRevision,
-    };
+Map<String, dynamic> _$$PosBootstrapSyncImplToJson(
+  _$PosBootstrapSyncImpl instance,
+) => <String, dynamic>{
+  'menu_revision': instance.menuRevision,
+  'bootstrap_revision': instance.bootstrapRevision,
+};

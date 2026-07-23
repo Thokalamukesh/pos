@@ -50,8 +50,10 @@ class SelfxAuthInterceptor extends QueuedInterceptor {
     }
 
     final session = await _storage.readAuthSession();
-    final restaurantId = session?.currentRestaurant?.id;
-    final branchId = session?.currentBranch?.id;
+    final pairedDevice = await _storage.readPairedDevice();
+    final restaurantId =
+        session?.currentRestaurant?.id ?? pairedDevice?.restaurantId;
+    final branchId = session?.currentBranch?.id ?? pairedDevice?.branchId;
 
     if (session?.token.isNotEmpty == true) {
       options.headers.putIfAbsent(
