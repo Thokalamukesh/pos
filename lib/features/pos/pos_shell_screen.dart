@@ -35,6 +35,8 @@ import '../customer_display/presentation/customer_display_page.dart';
 import '../terminal/terminal_controller.dart';
 import '../terminal/terminal_selection_screen.dart';
 
+const _allItemsCategoryId = '__all_items__';
+
 class PosShellScreen extends ConsumerWidget {
   const PosShellScreen({super.key});
 
@@ -198,23 +200,46 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     super.dispose();
   }
 
-  List<_CatalogCategory> get _categories {
+  List<_CatalogCategory> get _rawCategories {
     final source = _menuCategoryData ?? widget.data.categories;
+    final languageCode = ref.read(selectedPosLanguageProvider).code;
     return source
         .where(_isMenuEntityVisible)
-        .map(_CatalogCategory.fromJson)
+        .map(
+          (category) =>
+              _CatalogCategory.fromJson(category, languageCode: languageCode),
+        )
         .where((category) => category.id.isNotEmpty)
         .toList();
   }
 
+  List<_CatalogCategory> get _categories {
+    final raw = _rawCategories;
+    return [
+      _CatalogCategory(
+        id: _allItemsCategoryId,
+        name: 'All items',
+        items: raw.expand((category) => category.items).toList(),
+      ),
+      ...raw,
+    ];
+  }
+
   List<_CatalogItem> get _allItems {
-    return _categories.expand((category) => category.items).toList();
+    return _rawCategories.expand((category) => category.items).toList();
   }
 
   List<_CatalogItem> get _popularItems {
     final allById = {for (final item in _allItems) item.id: item};
+    final languageCode = ref.read(selectedPosLanguageProvider).code;
     final mapped = widget.data.popularItems
-        .map((item) => _CatalogItem.fromJson(item, categoryName: 'Popular'))
+        .map(
+          (item) => _CatalogItem.fromJson(
+            item,
+            categoryName: 'Popular',
+            languageCode: languageCode,
+          ),
+        )
         .where((item) => item.id.isNotEmpty)
         .map((item) => allById[item.id])
         .whereType<_CatalogItem>()
@@ -231,7 +256,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
             (item.barcode?.toLowerCase().contains(query) ?? false);
       }).toList();
     }
-    return _categories
+    if (_activeCategoryId == _allItemsCategoryId) {
+      return _allItems;
+    }
+    return _rawCategories
         .where((category) => category.id == _activeCategoryId)
         .expand((category) => category.items)
         .toList();
@@ -1748,7 +1776,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     final printerConfig = ref.watch(printerConfigProvider).asData?.value;
     final session = ref.watch(authControllerProvider).asData?.value;
     final selectedLanguage = ref.watch(selectedPosLanguageProvider);
-    final languages = ref.watch(posLanguagesProvider);
+    final languages = _languagesWithBootstrap(
+      ref.watch(posLanguagesProvider),
+      _languagesFromBootstrap(widget.data),
+    );
     final themeMode = ref.watch(appThemeModeProvider);
     final darkMode = themeMode == ThemeMode.dark;
     final staffName = _activeStaffName(
@@ -1976,22 +2007,26 @@ class _PosHeader extends StatelessWidget {
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 1120;
         final tight = constraints.maxWidth < 820;
+        final surface = _posSurface(context);
+        final borderColor = _posBorder(context);
+        final textColor = _posText(context);
+        final mutedColor = _posMuted(context);
         final iconButtonStyle = IconButton.styleFrom(
-          foregroundColor: const Color(0xFF334155),
-          backgroundColor: Colors.white,
+          foregroundColor: textColor,
+          backgroundColor: surface,
           fixedSize: const Size(42, 42),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: Color(0xFFE5E7EB)),
+            side: BorderSide(color: borderColor),
           ),
         );
 
         return Container(
           height: 70,
           padding: const EdgeInsets.symmetric(horizontal: 18),
-          decoration: const BoxDecoration(
-            color: Color(0xFFFFFFFF),
-            border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+          decoration: BoxDecoration(
+            color: surface,
+            border: Border(bottom: BorderSide(color: borderColor)),
           ),
           child: Row(
             children: [
@@ -2005,13 +2040,13 @@ class _PosHeader extends StatelessWidget {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Flexible(
+                        Flexible(
                           child: Text(
                             'POS Terminal',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: Color(0xFF111827),
+                              color: textColor,
                               fontSize: 20,
                               fontWeight: FontWeight.w900,
                               height: 1.05,
@@ -2030,8 +2065,8 @@ class _PosHeader extends StatelessWidget {
                       breadcrumbParts.join(' \u00B7 '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF64748B),
+                      style: TextStyle(
+                        color: mutedColor,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         height: 1.25,
@@ -2055,7 +2090,7 @@ class _PosHeader extends StatelessWidget {
                 tooltip: 'Orders',
                 label: 'Orders',
                 icon: Icons.confirmation_number_outlined,
-                iconColor: const Color(0xFF111827),
+                iconColor: textColor,
                 onPressed: onOrders,
               ),
               const SizedBox(width: 8),
@@ -2066,10 +2101,10 @@ class _PosHeader extends StatelessWidget {
                         style: iconButtonStyle,
                         tooltip: 'Day-end reports',
                         onPressed: onDailyReport,
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.print_outlined,
                           size: 19,
-                          color: Color(0xFF111827),
+                          color: textColor,
                         ),
                       )
                     : ElevatedButton.icon(
@@ -2078,18 +2113,15 @@ class _PosHeader extends StatelessWidget {
                           shadowColor: const Color(
                             0xFF0F766E,
                           ).withValues(alpha: 0.16),
-                          foregroundColor: const Color(0xFF111827),
-                          backgroundColor: Colors.white,
-                          side: const BorderSide(color: Color(0xFFE5E7EB)),
+                          foregroundColor: textColor,
+                          backgroundColor: surface,
+                          side: BorderSide(color: borderColor),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
                         onPressed: onDailyReport,
-                        icon: const Icon(
-                          Icons.print_outlined,
-                          color: Color(0xFF111827),
-                        ),
+                        icon: Icon(Icons.print_outlined, color: textColor),
                         label: const Text('Day-end reports'),
                       ),
               ),
@@ -2197,9 +2229,9 @@ class _HeaderActionButton extends StatelessWidget {
           : ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 elevation: 1,
-                foregroundColor: const Color(0xFF111827),
-                backgroundColor: Colors.white,
-                side: const BorderSide(color: Color(0xFFE5E7EB)),
+                foregroundColor: _posText(context),
+                backgroundColor: _posSurface(context),
+                side: BorderSide(color: _posBorder(context)),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -2249,16 +2281,16 @@ class _LanguageMenuButton extends StatelessWidget {
         height: 42,
         child: DecoratedBox(
           decoration: ShapeDecoration(
-            color: Colors.white,
+            color: _posSurface(context),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: Color(0xFFE5E7EB)),
+              side: BorderSide(color: _posBorder(context)),
             ),
           ),
           child: Stack(
             alignment: Alignment.center,
             children: [
-              const Icon(Icons.translate, size: 20, color: Color(0xFF334155)),
+              Icon(Icons.translate, size: 20, color: _posText(context)),
               if (languages.isLoading)
                 const Positioned(
                   right: 6,
@@ -2303,9 +2335,9 @@ class _ShiftStrip extends StatelessWidget {
     return Container(
       height: 50,
       padding: const EdgeInsets.symmetric(horizontal: 18),
-      decoration: const BoxDecoration(
-        color: Color(0xFFFFFFFF),
-        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+      decoration: BoxDecoration(
+        color: _posSurface(context),
+        border: Border(bottom: BorderSide(color: _posBorder(context))),
       ),
       child: Row(
         children: [
@@ -2544,9 +2576,9 @@ class _CategoryRailState extends State<_CategoryRail> {
 
     return Container(
       width: 112,
-      decoration: const BoxDecoration(
-        color: Color(0xFFFFFFFF),
-        border: Border(right: BorderSide(color: Color(0xFFE5E7EB))),
+      decoration: BoxDecoration(
+        color: _posSurface(context),
+        border: Border(right: BorderSide(color: _posBorder(context))),
       ),
       child: Scrollbar(
         controller: _scrollController,
@@ -2573,7 +2605,10 @@ class _CategoryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final activeTextColor = Colors.white;
+    final dark = _posIsDark(context);
+    final activeTextColor = dark
+        ? const Color(0xFFEDE9FE)
+        : const Color(0xFF4F46E5);
     return Align(
       alignment: Alignment.topCenter,
       child: Material(
@@ -2594,15 +2629,19 @@ class _CategoryButton extends StatelessWidget {
             width: 96,
             padding: EdgeInsets.fromLTRB(6, compact ? 6 : 7, 6, 6),
             decoration: BoxDecoration(
-              color: active ? const Color(0xFF071126) : Colors.transparent,
+              color: active
+                  ? (dark ? const Color(0xFF261A52) : const Color(0xFFF0EDFF))
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: active ? const Color(0xFF111C33) : Colors.transparent,
+                color: active
+                    ? (dark ? const Color(0xFF4F46E5) : const Color(0xFFD8D1FF))
+                    : Colors.transparent,
               ),
               boxShadow: active
                   ? [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.18),
+                        color: const Color(0xFF4F46E5).withValues(alpha: 0.14),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -2614,11 +2653,10 @@ class _CategoryButton extends StatelessWidget {
               children: [
                 _CategoryThumb(
                   imageUrl: category.imageUrl,
+                  isAllItems: category.id == _allItemsCategoryId,
                   active: active,
                   compact: compact,
-                  iconColor: active
-                      ? const Color(0xFFE2E8F0)
-                      : colors.onSurfaceVariant,
+                  iconColor: active ? activeTextColor : colors.onSurfaceVariant,
                 ),
                 SizedBox(height: compact ? 5 : 6),
                 Text(
@@ -2627,7 +2665,7 @@ class _CategoryButton extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: active ? activeTextColor : const Color(0xFF334155),
+                    color: active ? activeTextColor : _posText(context),
                     fontSize: compact ? 11 : 11.5,
                     height: 1,
                     fontWeight: FontWeight.w900,
@@ -2645,12 +2683,14 @@ class _CategoryButton extends StatelessWidget {
 class _CategoryThumb extends StatelessWidget {
   const _CategoryThumb({
     required this.imageUrl,
+    required this.isAllItems,
     required this.active,
     required this.compact,
     required this.iconColor,
   });
 
   final String? imageUrl;
+  final bool isAllItems;
   final bool active;
   final bool compact;
   final Color iconColor;
@@ -2661,7 +2701,7 @@ class _CategoryThumb extends StatelessWidget {
     final hasImage =
         url != null && url.isNotEmpty && _shouldLoadPosNetworkImage(url);
     final fallback = Icon(
-      Icons.restaurant_menu,
+      isAllItems ? Icons.grid_view_rounded : Icons.restaurant_menu,
       color: iconColor,
       size: compact ? 23 : 24,
     );
@@ -2673,12 +2713,18 @@ class _CategoryThumb extends StatelessWidget {
       width: compact ? 50 : 52,
       height: compact ? 50 : 52,
       decoration: BoxDecoration(
-        color: active ? const Color(0xFF111C33) : const Color(0xFFF1F5F9),
+        color: active
+            ? (_posIsDark(context)
+                  ? const Color(0xFF312366)
+                  : const Color(0xFFE5E0FF))
+            : _posSoftSurface(context),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: active
-              ? Colors.white.withValues(alpha: hasImage ? 0.32 : 0.10)
-              : const Color(0xFFE5E7EB),
+              ? const Color(
+                  0xFFBFB5FF,
+                ).withValues(alpha: hasImage ? 0.48 : 0.65)
+              : _posBorder(context),
         ),
       ),
       clipBehavior: Clip.antiAlias,
@@ -2738,7 +2784,7 @@ class _CatalogPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return DecoratedBox(
-      decoration: const BoxDecoration(color: Color(0xFFF8FAFC)),
+      decoration: BoxDecoration(color: _posBackground(context)),
       child: Column(
         children: [
           Padding(
@@ -2750,14 +2796,14 @@ class _CatalogPanel extends StatelessWidget {
                     constraints: const BoxConstraints(maxWidth: 520),
                     child: TextField(
                       controller: searchController,
-                      style: const TextStyle(
-                        color: Color(0xFF0F172A),
+                      style: TextStyle(
+                        color: _posText(context),
                         fontSize: 18,
                         fontWeight: FontWeight.w400,
                       ),
                       decoration: InputDecoration(
                         filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
+                        fillColor: _posSoftSurface(context),
                         prefixIcon: const Icon(
                           Icons.search,
                           color: Color(0xFF94A3B8),
@@ -2774,21 +2820,15 @@ class _CatalogPanel extends StatelessWidget {
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE5E7EB),
-                          ),
+                          borderSide: BorderSide(color: _posBorder(context)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE5E7EB),
-                          ),
+                          borderSide: BorderSide(color: _posBorder(context)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFCBD5E1),
-                          ),
+                          borderSide: BorderSide(color: _posMuted(context)),
                         ),
                         suffixIcon: searchQuery.isEmpty
                             ? null
@@ -2899,17 +2939,18 @@ class _PopularItemsStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: SizedBox(
-        height: 268,
+        height: 196,
         child: ListView.separated(
           padding: const EdgeInsets.symmetric(horizontal: 28),
           scrollDirection: Axis.horizontal,
           itemCount: items.length,
           separatorBuilder: (context, index) => const SizedBox(width: 14),
           itemBuilder: (context, index) => SizedBox(
-            width: 210,
+            width: 172,
             child: _ProductCard(
               item: items[index],
               money: money,
+              compact: true,
               selected: selectedItemIds.contains(items[index].id),
               onTap: () => onAdd(items[index]),
             ),
@@ -3036,12 +3077,14 @@ class _ProductCard extends StatefulWidget {
     required this.item,
     required this.money,
     required this.onTap,
+    this.compact = false,
     this.selected = false,
   });
 
   final _CatalogItem item;
   final NumberFormat money;
   final VoidCallback onTap;
+  final bool compact;
   final bool selected;
 
   @override
@@ -3065,7 +3108,7 @@ class _ProductCardState extends State<_ProductCard> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: BorderSide(
-            color: active ? const Color(0xFF4F46E5) : const Color(0xFFE5E7EB),
+            color: active ? const Color(0xFF4F46E5) : _posBorder(context),
             width: active ? 2 : 1,
           ),
         ),
@@ -3076,7 +3119,7 @@ class _ProductCardState extends State<_ProductCard> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(
-                height: 142,
+                height: widget.compact ? 96 : 142,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -3126,8 +3169,13 @@ class _ProductCardState extends State<_ProductCard> {
               ),
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
-                  color: const Color(0xFFFFFFFF),
+                  padding: EdgeInsets.fromLTRB(
+                    14,
+                    widget.compact ? 8 : 10,
+                    12,
+                    widget.compact ? 8 : 10,
+                  ),
+                  color: _posSurface(context),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -3136,8 +3184,8 @@ class _ProductCardState extends State<_ProductCard> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: const Color(0xFF1F2937),
-                          fontSize: 15,
+                          color: _posText(context),
+                          fontSize: widget.compact ? 13 : 15,
                           height: 1.15,
                           fontWeight: FontWeight.w800,
                         ),
@@ -3153,14 +3201,17 @@ class _ProductCardState extends State<_ProductCard> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: const Color(0xFF4F46E5),
-                                fontSize: 17,
+                                fontSize: widget.compact ? 15 : 17,
                                 height: 1,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          _AddItemControl(hasChoices: widget.item.hasChoices),
+                          _AddItemControl(
+                            hasChoices: widget.item.hasChoices,
+                            compact: widget.compact,
+                          ),
                         ],
                       ),
                     ],
@@ -3176,17 +3227,18 @@ class _ProductCardState extends State<_ProductCard> {
 }
 
 class _AddItemControl extends StatelessWidget {
-  const _AddItemControl({required this.hasChoices});
+  const _AddItemControl({required this.hasChoices, required this.compact});
 
   final bool hasChoices;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    const height = 42.0;
+    final height = compact ? 36.0 : 42.0;
     if (hasChoices) {
       return Container(
         height: height,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
         decoration: BoxDecoration(
           color: const Color(0xFF4F46E5),
           borderRadius: BorderRadius.circular(8),
@@ -3201,13 +3253,13 @@ class _AddItemControl extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.tune, size: 14, color: Colors.white),
+            Icon(Icons.tune, size: compact ? 13 : 14, color: Colors.white),
             const SizedBox(width: 5),
-            const Text(
+            Text(
               'Choose',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 12,
+                fontSize: compact ? 11 : 12,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -3524,9 +3576,9 @@ class _CartPanel extends StatelessWidget {
     final hasLines = lines.isNotEmpty;
     final displayLines = lines.toList(growable: false);
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFFFFFFFF),
-        border: Border(left: BorderSide(color: Color(0xFFE5E7EB))),
+      decoration: BoxDecoration(
+        color: _posSurface(context),
+        border: Border(left: BorderSide(color: _posBorder(context))),
       ),
       child: Column(
         children: [
@@ -3548,8 +3600,8 @@ class _CartPanel extends StatelessWidget {
                           )
                         : OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF0F172A),
-                              side: const BorderSide(color: Color(0xFFE2E8F0)),
+                              foregroundColor: _posText(context),
+                              side: BorderSide(color: _posBorder(context)),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -3616,7 +3668,7 @@ class _CartPanel extends StatelessWidget {
                 ),
               ),
             ),
-          const Divider(height: 1, color: Color(0xFFE5E7EB)),
+          Divider(height: 1, color: _posBorder(context)),
           if (orderNoteEditorVisible && hasLines) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 16, 14),
@@ -3642,7 +3694,7 @@ class _CartPanel extends StatelessWidget {
                 ),
               ),
             ),
-            const Divider(height: 1, color: Color(0xFFE5E7EB)),
+            Divider(height: 1, color: _posBorder(context)),
           ],
           Expanded(
             child: hasLines
@@ -3665,9 +3717,9 @@ class _CartPanel extends StatelessWidget {
                 : const _EmptyCartView(),
           ),
           Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFFFFFFFF),
-              border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+            decoration: BoxDecoration(
+              color: _posSurface(context),
+              border: Border(top: BorderSide(color: _posBorder(context))),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -3883,32 +3935,32 @@ class _EmptyCartView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           CircleAvatar(
             radius: 50,
-            backgroundColor: Color(0xFFF1F5F9),
+            backgroundColor: _posSoftSurface(context),
             child: Icon(
               Icons.shopping_bag_outlined,
-              color: Color(0xFFCBD5E1),
+              color: _posMuted(context),
               size: 42,
             ),
           ),
-          SizedBox(height: 18),
+          const SizedBox(height: 18),
           Text(
             'Cart is empty',
             style: TextStyle(
-              color: Color(0xFF0F172A),
+              color: _posText(context),
               fontSize: 18,
               fontWeight: FontWeight.w900,
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'Select items from the menu to start',
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+            style: TextStyle(color: _posMuted(context), fontSize: 14),
           ),
         ],
       ),
@@ -3939,9 +3991,9 @@ class _CartLineTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final optionTags = line.optionTags;
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: Color(0xFFFFFFFF),
-        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+      decoration: BoxDecoration(
+        color: _posSurface(context),
+        border: Border(bottom: BorderSide(color: _posBorder(context))),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3969,7 +4021,7 @@ class _CartLineTile extends StatelessWidget {
                             height: 40,
                             decoration: BoxDecoration(
                               color: expanded
-                                  ? const Color(0xFFF1F5F9)
+                                  ? _posSoftSurface(context)
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -3978,7 +4030,7 @@ class _CartLineTile extends StatelessWidget {
                                   ? Icons.keyboard_arrow_down
                                   : Icons.keyboard_arrow_right,
                               size: 20,
-                              color: const Color(0xFF64748B),
+                              color: _posMuted(context),
                             ),
                           ),
                         ),
@@ -3988,8 +4040,8 @@ class _CartLineTile extends StatelessWidget {
                           child: Text(
                             '${line.quantity}',
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Color(0xFF0F172A),
+                            style: TextStyle(
+                              color: _posText(context),
                               fontSize: 16,
                               height: 1.2,
                               fontWeight: FontWeight.w700,
@@ -4006,8 +4058,8 @@ class _CartLineTile extends StatelessWidget {
                                 line.item.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF0F172A),
+                                style: TextStyle(
+                                  color: _posText(context),
                                   fontSize: 16,
                                   height: 1.2,
                                   fontWeight: FontWeight.w600,
@@ -4019,8 +4071,8 @@ class _CartLineTile extends StatelessWidget {
                                   line.optionSummary,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Color(0xFF64748B),
+                                  style: TextStyle(
+                                    color: _posMuted(context),
                                     fontSize: 12,
                                     height: 1.2,
                                     fontWeight: FontWeight.w600,
@@ -4033,8 +4085,8 @@ class _CartLineTile extends StatelessWidget {
                         const SizedBox(width: 12),
                         Text(
                           money.format(line.total),
-                          style: const TextStyle(
-                            color: Color(0xFF0F172A),
+                          style: TextStyle(
+                            color: _posText(context),
                             fontSize: 16,
                             height: 1.2,
                             fontWeight: FontWeight.w700,
@@ -4144,18 +4196,16 @@ class _CartLineTile extends StatelessWidget {
                             height: 42,
                             padding: const EdgeInsets.symmetric(horizontal: 14),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
+                              color: _posSoftSurface(context),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
-                              ),
+                              border: Border.all(color: _posBorder(context)),
                             ),
                             child: Row(
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.chat_bubble_outline,
                                   size: 18,
-                                  color: Color(0xFF64748B),
+                                  color: _posMuted(context),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
@@ -4165,9 +4215,7 @@ class _CartLineTile extends StatelessWidget {
                                         : 'Add line note',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Color(0xFF64748B),
-                                    ),
+                                    style: TextStyle(color: _posMuted(context)),
                                   ),
                                 ),
                               ],
@@ -4286,10 +4334,10 @@ class _CartToolButton extends StatelessWidget {
       child: IconButton.outlined(
         tooltip: tooltip,
         style: IconButton.styleFrom(
-          backgroundColor: const Color(0xFFFFFFFF),
-          foregroundColor: const Color(0xFF334155),
+          backgroundColor: _posSurface(context),
+          foregroundColor: _posText(context),
           disabledForegroundColor: const Color(0xFFCBD5E1),
-          side: const BorderSide(color: Color(0xFFE2E8F0)),
+          side: BorderSide(color: _posBorder(context)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         onPressed: onPressed,
@@ -9011,6 +9059,27 @@ class _Badge extends StatelessWidget {
   }
 }
 
+bool _posIsDark(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark;
+
+Color _posBackground(BuildContext context) =>
+    _posIsDark(context) ? const Color(0xFF0B0B0D) : const Color(0xFFF8FAFC);
+
+Color _posSurface(BuildContext context) =>
+    _posIsDark(context) ? const Color(0xFF16161A) : const Color(0xFFFFFFFF);
+
+Color _posSoftSurface(BuildContext context) =>
+    _posIsDark(context) ? const Color(0xFF202027) : const Color(0xFFF8FAFC);
+
+Color _posBorder(BuildContext context) =>
+    _posIsDark(context) ? const Color(0xFF30303A) : const Color(0xFFE5E7EB);
+
+Color _posText(BuildContext context) =>
+    _posIsDark(context) ? const Color(0xFFF8FAFC) : const Color(0xFF0F172A);
+
+Color _posMuted(BuildContext context) =>
+    _posIsDark(context) ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
 class _CatalogCategory {
   const _CatalogCategory({
     required this.id,
@@ -9024,10 +9093,15 @@ class _CatalogCategory {
   final List<_CatalogItem> items;
   final String? imageUrl;
 
-  factory _CatalogCategory.fromJson(Map<String, dynamic> json) {
+  factory _CatalogCategory.fromJson(
+    Map<String, dynamic> json, {
+    String languageCode = '',
+  }) {
     final id = _stringValue(json['id'] ?? json['uuid'] ?? json['slug']);
     final name = _stringValue(
-      json['name'] ?? json['title'],
+      _translatedValue(json, languageCode, const ['name', 'title']) ??
+          json['name'] ??
+          json['title'],
       fallback: 'Category',
     );
     final rawItems = _firstMapList(json, const [
@@ -9047,6 +9121,7 @@ class _CatalogCategory {
               item,
               categoryName: name,
               categoryId: id.isEmpty ? name : id,
+              languageCode: languageCode,
             ),
           )
           .where((item) => item.id.isNotEmpty)
@@ -9347,6 +9422,7 @@ class _CatalogItem {
     String categoryId = '',
     String categoryName = '',
     bool includeRelated = true,
+    String languageCode = '',
   }) {
     final price = _doubleValue(
       json['price'] ?? json['selling_price'] ?? json['base_price'],
@@ -9374,7 +9450,12 @@ class _CatalogItem {
     ]);
     return _CatalogItem(
       id: _stringValue(json['id'] ?? json['menu_item_id'] ?? json['uuid']),
-      name: _stringValue(json['name'] ?? json['title'], fallback: 'Menu item'),
+      name: _stringValue(
+        _translatedValue(json, languageCode, const ['name', 'title']) ??
+            json['name'] ??
+            json['title'],
+        fallback: 'Menu item',
+      ),
       price: price,
       categoryId: _stringValue(
         json['category_id'] ?? json['categoryId'],
@@ -9439,6 +9520,7 @@ class _CatalogItem {
               categoryId: categoryId,
               categoryName: categoryName,
               includeRelated: false,
+              languageCode: languageCode,
             ),
           )
           .where((item) => item.id.isNotEmpty)
@@ -9989,6 +10071,166 @@ List<String> _stringList(Object? value) {
       })
       .where((item) => item.isNotEmpty)
       .toList();
+}
+
+AsyncValue<List<PosLanguage>> _languagesWithBootstrap(
+  AsyncValue<List<PosLanguage>> apiLanguages,
+  List<PosLanguage> bootstrapLanguages,
+) {
+  final merged = _mergePosLanguages([
+    ...(apiLanguages.asData?.value ?? const [defaultPosLanguage]),
+    ...bootstrapLanguages,
+  ]);
+  if (merged.length > 1 || apiLanguages.hasValue) {
+    return AsyncData(merged);
+  }
+  if (apiLanguages.hasError) {
+    return AsyncData(merged);
+  }
+  return const AsyncLoading<List<PosLanguage>>().copyWithPrevious(
+    AsyncData(merged),
+  );
+}
+
+List<PosLanguage> _languagesFromBootstrap(PosBootstrap bootstrap) {
+  final languages = <PosLanguage>[];
+  void collectFromMap(Map<String, dynamic> map) {
+    languages.addAll(_languagesFromTranslations(map['translations']));
+    for (final item in _firstMapList(map, const [
+      'items',
+      'menu_items',
+      'menuItems',
+      'products',
+    ])) {
+      languages.addAll(_languagesFromTranslations(item['translations']));
+    }
+  }
+
+  for (final category in bootstrap.categories.whereType<Map>()) {
+    collectFromMap(Map<String, dynamic>.from(category));
+  }
+  for (final item in bootstrap.popularItems.whereType<Map>()) {
+    languages.addAll(
+      _languagesFromTranslations(
+        Map<String, dynamic>.from(item)['translations'],
+      ),
+    );
+  }
+  return _mergePosLanguages(languages);
+}
+
+List<PosLanguage> _languagesFromTranslations(Object? value) {
+  if (value is! List) {
+    return const [];
+  }
+  final languages = <PosLanguage>[];
+  for (final raw in value.whereType<Map>()) {
+    final map = Map<String, dynamic>.from(raw);
+    final code = _firstText(map, const [
+      'locale',
+      'language',
+      'language_code',
+      'languageCode',
+      'code',
+    ]);
+    if (code.isEmpty) {
+      continue;
+    }
+    final label = _firstText(map, const [
+      'language_name',
+      'languageName',
+      'language_label',
+      'languageLabel',
+      'label',
+    ]);
+    languages.add(
+      PosLanguage(
+        code: code,
+        label: label.isEmpty ? _posLanguageName(code) : label,
+        nativeLabel: _firstText(map, const [
+          'native_name',
+          'nativeName',
+          'local_name',
+          'localName',
+        ]),
+      ),
+    );
+  }
+  return languages;
+}
+
+List<PosLanguage> _mergePosLanguages(List<PosLanguage> languages) {
+  final byCode = <String, PosLanguage>{};
+  for (final language in [defaultPosLanguage, ...languages]) {
+    final code = language.code.trim();
+    if (code.isNotEmpty) {
+      byCode[code.toLowerCase()] = language;
+    }
+  }
+  return byCode.values.toList();
+}
+
+Object? _translatedValue(
+  Map<String, dynamic> source,
+  String languageCode,
+  List<String> keys,
+) {
+  final normalized = languageCode.trim().toLowerCase();
+  if (normalized.isEmpty || normalized == 'en') {
+    return null;
+  }
+  final translations = source['translations'];
+  if (translations is! List) {
+    return null;
+  }
+  for (final raw in translations.whereType<Map>()) {
+    final map = Map<String, dynamic>.from(raw);
+    final code = _firstText(map, const [
+      'locale',
+      'language',
+      'language_code',
+      'languageCode',
+      'code',
+    ]).toLowerCase();
+    if (code != normalized &&
+        code.split('-').first != normalized.split('-').first) {
+      continue;
+    }
+    for (final key in keys) {
+      final value = _deepValue(map, key) ?? _deepValue(map, 'translation.$key');
+      final text = _nullableString(value);
+      if (text != null) {
+        return text;
+      }
+    }
+  }
+  return null;
+}
+
+String _posLanguageName(String code) {
+  switch (code.toLowerCase()) {
+    case 'en':
+    case 'en-us':
+    case 'en-in':
+      return 'English';
+    case 'hi':
+    case 'hi-in':
+      return 'Hindi';
+    case 'te':
+    case 'te-in':
+      return 'Telugu';
+    case 'ta':
+    case 'ta-in':
+      return 'Tamil';
+    case 'kn':
+    case 'kn-in':
+      return 'Kannada';
+    case 'ml':
+    case 'ml-in':
+      return 'Malayalam';
+    default:
+      return code.toUpperCase();
+  }
 }
 
 String _stringValue(Object? value, {String fallback = ''}) {

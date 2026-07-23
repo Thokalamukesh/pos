@@ -83,6 +83,9 @@ class _KitchenDisplayScreenState extends ConsumerState<KitchenDisplayScreen> {
                 onStatusChanged: (order, status) => ref
                     .read(_kitchenDisplayControllerProvider.notifier)
                     .updateStatus(order, status),
+                onPriority: (order) => ref
+                    .read(_kitchenDisplayControllerProvider.notifier)
+                    .bumpPriority(order),
               ),
             ),
           ),
@@ -129,7 +132,19 @@ class _KitchenDisplayController extends AsyncNotifier<_KitchenDisplayState> {
     state = await AsyncValue.guard(() async {
       await ref
           .read(_kitchenDisplayRepositoryProvider)
-          .updateStatus(order.id, status);
+          .updateStatus(order, status);
+      return _loadOrders();
+    });
+  }
+
+  Future<void> bumpPriority(_KitchenOrder order) async {
+    final current = state.asData?.value;
+    if (current == null) {
+      return;
+    }
+
+    state = await AsyncValue.guard(() async {
+      await ref.read(_kitchenDisplayRepositoryProvider).bumpPriority(order);
       return _loadOrders();
     });
   }
@@ -200,8 +215,12 @@ class _KitchenDisplayRepository {
   final Dio _dio;
 
   Future<_KitchenDisplayState> bootstrap() async {
-    final response = await _get('${AppConfig.apiPrefix}/kitchen/bootstrap');
-    final data = _dataMap(response);
+    Map<String, dynamic> data;
+    try {
+      data = _dataMap(await _get('${AppConfig.apiPrefix}/kitchen/bootstrap'));
+    } on AppException {
+      data = _dataMap(await _get('${AppConfig.apiPrefix}/kitchen/orders'));
+    }
     final restaurant = _asMap(data['restaurant']);
     final branch = _asMap(data['branch']);
     final kitchens = _listOfMaps(
@@ -210,6 +229,16 @@ class _KitchenDisplayRepository {
     final selected = _asMap(
       data['selected_kitchen'] ?? data['selectedKitchen'],
     );
+    final selectedKitchenId = _intValue(data['selected_kitchen_id']);
+    final selectedKitchen = selected.isEmpty
+        ? _Kitchen(
+            id: selectedKitchenId,
+            name: selectedKitchenId == 0
+                ? 'Kitchen'
+                : 'Kitchen $selectedKitchenId',
+            isSelected: true,
+          )
+        : _Kitchen.fromJson(selected);
 
     return _KitchenDisplayState(
       restaurantName: _stringValue(
@@ -220,10 +249,14 @@ class _KitchenDisplayRepository {
         branch['name'] ?? data['branch_name'],
         fallback: 'Main',
       ),
-      kitchens: kitchens,
+      kitchens: kitchens.isEmpty && selectedKitchenId != 0
+          ? [selectedKitchen]
+          : kitchens,
       selectedKitchen: selected.isEmpty
-          ? (kitchens.isEmpty ? null : kitchens.first)
-          : _Kitchen.fromJson(selected),
+          ? (selectedKitchenId != 0
+                ? selectedKitchen
+                : (kitchens.isEmpty ? null : kitchens.first))
+          : selectedKitchen,
       orders: _ordersFrom(data['orders'] ?? data['orders_by_status']),
       lastUpdated: DateTime.now(),
     );
@@ -238,27 +271,43 @@ class _KitchenDisplayRepository {
     return _ordersFrom(data['orders'] ?? data['orders_by_status'] ?? data);
   }
 
-  Future<void> updateStatus(int orderId, _KitchenStatus status) async {
+  Future<void> updateStatus(_KitchenOrder order, _KitchenStatus status) async {
     AppException? lastValidationError;
 
     for (final value in status.apiValues) {
-      try {
-        await _dio.patch<Map<String, dynamic>>(
-          '${AppConfig.apiPrefix}/kitchen/orders/$orderId/status',
-          data: {'status': value},
-        );
-        return;
-      } on DioException catch (error) {
-        final exception = AppException.fromDio(error);
-        if (error.response?.statusCode != 422) {
-          throw exception;
+      for (final path in [
+        '${AppConfig.apiPrefix}/kitchen/orders/${order.id}/status',
+        if (order.ticketId != 0)
+          '${AppConfig.apiPrefix}/kitchen/tickets/${order.ticketId}/status',
+      ]) {
+        try {
+          await _dio.patch<Map<String, dynamic>>(path, data: {'status': value});
+          return;
+        } on DioException catch (error) {
+          final exception = AppException.fromDio(error);
+          if (error.response?.statusCode != 422 &&
+              error.response?.statusCode != 404 &&
+              error.response?.statusCode != 405) {
+            throw exception;
+          }
+          lastValidationError = exception;
         }
-        lastValidationError = exception;
       }
     }
 
     throw lastValidationError ??
         const AppException(message: 'This order could not be updated.');
+  }
+
+  Future<void> bumpPriority(_KitchenOrder order) async {
+    try {
+      await _dio.patch<Map<String, dynamic>>(
+        '${AppConfig.apiPrefix}/kitchen/orders/${order.id}/priority',
+        data: {'kitchen_priority': order.kitchenPriority + 1},
+      );
+    } on DioException catch (error) {
+      throw AppException.fromDio(error);
+    }
   }
 
   Future<Map<String, dynamic>> _get(
@@ -285,6 +334,7 @@ class _KitchenDisplayBody extends StatelessWidget {
     required this.onCustomerBoard,
     required this.onRefresh,
     required this.onStatusChanged,
+    required this.onPriority,
   });
 
   final _KitchenDisplayState state;
@@ -294,6 +344,7 @@ class _KitchenDisplayBody extends StatelessWidget {
   final VoidCallback onRefresh;
   final void Function(_KitchenOrder order, _KitchenStatus status)
   onStatusChanged;
+  final ValueChanged<_KitchenOrder> onPriority;
 
   @override
   Widget build(BuildContext context) {
@@ -316,6 +367,7 @@ class _KitchenDisplayBody extends StatelessWidget {
                   state: state,
                   now: now,
                   onStatusChanged: onStatusChanged,
+                  onPriority: onPriority,
                 ),
         ),
       ],
@@ -741,12 +793,14 @@ class _KitchenBoard extends StatelessWidget {
     required this.state,
     required this.now,
     required this.onStatusChanged,
+    required this.onPriority,
   });
 
   final _KitchenDisplayState state;
   final DateTime now;
   final void Function(_KitchenOrder order, _KitchenStatus status)
   onStatusChanged;
+  final ValueChanged<_KitchenOrder> onPriority;
 
   @override
   Widget build(BuildContext context) {
@@ -766,6 +820,7 @@ class _KitchenBoard extends StatelessWidget {
               orders: state.ordersFor(status),
               now: now,
               onStatusChanged: onStatusChanged,
+              onPriority: onPriority,
             ),
         ];
 
@@ -804,6 +859,7 @@ class _KitchenStatusColumn extends StatelessWidget {
     required this.orders,
     required this.now,
     required this.onStatusChanged,
+    required this.onPriority,
   });
 
   final _KitchenStatus status;
@@ -811,6 +867,7 @@ class _KitchenStatusColumn extends StatelessWidget {
   final DateTime now;
   final void Function(_KitchenOrder order, _KitchenStatus status)
   onStatusChanged;
+  final ValueChanged<_KitchenOrder> onPriority;
 
   @override
   Widget build(BuildContext context) {
@@ -931,6 +988,7 @@ class _KitchenStatusColumn extends StatelessWidget {
                             : null,
                         onStatusChanged: (nextStatus) =>
                             onStatusChanged(order, nextStatus),
+                        onPriority: () => onPriority(order),
                       );
                     },
                   ),
@@ -946,12 +1004,14 @@ class _KitchenOrderCard extends StatelessWidget {
     required this.order,
     required this.now,
     required this.onStatusChanged,
+    required this.onPriority,
     this.priorityRank,
   });
 
   final _KitchenOrder order;
   final DateTime now;
   final ValueChanged<_KitchenStatus> onStatusChanged;
+  final VoidCallback onPriority;
   final int? priorityRank;
 
   @override
@@ -1060,7 +1120,7 @@ class _KitchenOrderCard extends StatelessWidget {
                         label: priorityRank == null
                             ? 'BUMP'
                             : 'BUMP +$priorityRank',
-                        onPressed: () => onStatusChanged(next),
+                        onPressed: onPriority,
                         expanded: stacked,
                       );
                       final action = SizedBox(
@@ -1605,17 +1665,21 @@ class _Kitchen {
 class _KitchenOrder {
   const _KitchenOrder({
     required this.id,
+    required this.ticketId,
     required this.token,
     required this.orderNumber,
     required this.status,
+    required this.kitchenPriority,
     required this.createdAt,
     required this.items,
   });
 
   final int id;
+  final int ticketId;
   final String token;
   final String orderNumber;
   final _KitchenStatus status;
+  final int kitchenPriority;
   final DateTime createdAt;
   final List<_KitchenOrderItem> items;
 
@@ -1627,9 +1691,11 @@ class _KitchenOrder {
   _KitchenOrder copyWith({_KitchenStatus? status}) {
     return _KitchenOrder(
       id: id,
+      ticketId: ticketId,
       token: token,
       orderNumber: orderNumber,
       status: status ?? this.status,
+      kitchenPriority: kitchenPriority,
       createdAt: createdAt,
       items: items,
     );
@@ -1642,6 +1708,13 @@ class _KitchenOrder {
 
     return _KitchenOrder(
       id: _intValue(json['id']),
+      ticketId: _intValue(
+        json['ticket_id'] ??
+            json['ticketId'] ??
+            json['ticket'] ??
+            json['kitchen_ticket_id'] ??
+            json['kitchenTicketId'],
+      ),
       token: _stringValue(
         json['token'] ?? json['token_no'] ?? json['display_token'],
         fallback: '-',
@@ -1651,6 +1724,9 @@ class _KitchenOrder {
         fallback: '-',
       ),
       status: _KitchenStatus.fromApi(json['status']),
+      kitchenPriority: _intValue(
+        json['kitchen_priority'] ?? json['kitchenPriority'] ?? json['priority'],
+      ),
       createdAt:
           DateTime.tryParse(
             _stringValue(
