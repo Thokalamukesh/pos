@@ -392,7 +392,12 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   }
 
   Future<void> _openCustomerDisplay() async {
-    await context.push(CustomerDisplayPage.routePath);
+    await context.push(
+      CustomerCartDisplayPage.routeFor(
+        branchId: widget.terminal.branchId,
+        terminalCode: widget.terminal.terminalCode,
+      ),
+    );
   }
 
   Future<void> _openDailyReport() async {

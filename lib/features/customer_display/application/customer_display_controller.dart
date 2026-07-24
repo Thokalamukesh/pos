@@ -109,12 +109,29 @@ class CustomerDisplayState {
 
 class CustomerDisplayController extends Notifier<CustomerDisplayState> {
   Timer? _pollTimer;
+  bool _cartMode = false;
+  int? _routeBranchId;
+  String? _routeTerminalCode;
 
   @override
   CustomerDisplayState build() {
     ref.onDispose(() => _pollTimer?.cancel());
     Future.microtask(_load);
     return const CustomerDisplayState();
+  }
+
+  Future<void> showOrderBoard() async {
+    _cartMode = false;
+    _routeBranchId = null;
+    _routeTerminalCode = null;
+    await _load();
+  }
+
+  Future<void> showCartDisplay({int? branchId, String? terminalCode}) async {
+    _cartMode = true;
+    _routeBranchId = branchId;
+    _routeTerminalCode = _normalizedTerminal(terminalCode);
+    await _load();
   }
 
   Future<void> saveSetup({
@@ -125,9 +142,7 @@ class CustomerDisplayController extends Notifier<CustomerDisplayState> {
   }) async {
     state = state.copyWith(isSavingSetup: true, clearError: true);
     final normalizedSlug = _slugFrom(restaurantSlug);
-    final normalizedTerminal = terminalCode.trim().isEmpty
-        ? 'T1'
-        : terminalCode.trim();
+    final normalizedTerminal = _normalizedTerminal(terminalCode) ?? 'T1';
 
     await ref
         .read(customerDisplayBoardRepositoryProvider)
@@ -155,12 +170,14 @@ class CustomerDisplayController extends Notifier<CustomerDisplayState> {
     final setup = await ref
         .read(customerDisplayBoardRepositoryProvider)
         .readSetup();
+    final branchId = _routeBranchId ?? setup.branchId;
+    final terminalCode = _routeTerminalCode ?? setup.terminalCode;
     state = state.copyWith(
       restaurantName: setup.restaurantName,
       restaurantSlug: setup.restaurantSlug,
       branchName: setup.branchName,
-      branchId: setup.branchId,
-      terminalCode: setup.terminalCode,
+      branchId: branchId,
+      terminalCode: terminalCode,
       syncToken: setup.syncToken,
       showPrices: setup.showPrices,
     );
@@ -172,6 +189,22 @@ class CustomerDisplayController extends Notifier<CustomerDisplayState> {
   Future<void> _poll() async {
     try {
       final repository = ref.read(customerDisplayBoardRepositoryProvider);
+      if (_cartMode) {
+        final cart = await repository.pollCart(
+          branchId: state.branchId,
+          terminalCode: state.terminalCode,
+          syncToken: state.syncToken,
+        );
+
+        state = state.copyWith(
+          isLoading: false,
+          cart: cart,
+          lastUpdated: DateTime.now(),
+          clearError: true,
+        );
+        return;
+      }
+
       final board = await repository.pollBoard(
         restaurantSlug: state.restaurantSlug,
         branchId: state.branchId,
@@ -201,6 +234,11 @@ class CustomerDisplayController extends Notifier<CustomerDisplayState> {
     }
     return 'Customer display is waiting for the server.';
   }
+}
+
+String? _normalizedTerminal(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }
 
 String _slugFrom(String value) {

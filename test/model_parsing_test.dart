@@ -538,6 +538,35 @@ void main() {
     expect(snapshot.ready.map((order) => order.token), ['15', '16']);
   });
 
+  test('customer display sync cart parses active cart payload', () {
+    final cart = CustomerCart.fromJson({
+      'active': true,
+      'cart': {
+        'tax': 0,
+        'items': [
+          {'name': 'Butterscotch', 'price': 160, 'quantity': 1},
+          {'name': 'Onion Dosa', 'price': '140.00', 'quantity': 1},
+        ],
+        'total': 300,
+        'currency': 'INR',
+        'discount': null,
+        'subtotal': 300,
+        'updated_at': '2026-07-24T07:08:29+00:00',
+        'extra_charges': [],
+        'service_charge': null,
+      },
+    });
+
+    expect(cart.active, isTrue);
+    expect(cart.currency, 'INR');
+    expect(cart.items, hasLength(2));
+    expect(cart.items.first.lineTotal, 160);
+    expect(cart.items.last.name, 'Onion Dosa');
+    expect(cart.items.last.price, 140);
+    expect(cart.total, 300);
+    expect(cart.updatedAt, isNotNull);
+  });
+
   test('receipt printer renderer produces ESC/POS bytes', () async {
     final receipt = ReceiptPrintObject.fromResponse({
       'order': {'id': 88},

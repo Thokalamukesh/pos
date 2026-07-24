@@ -40,6 +40,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const KitchenDisplayScreen(),
       ),
       GoRoute(
+        path: CustomerCartDisplayPage.routePath,
+        builder: (context, state) => const CustomerCartDisplayPage(),
+      ),
+      GoRoute(
+        path: '/order/oneness/display/:branchId/:terminalCode',
+        builder: (context, state) {
+          return CustomerCartDisplayPage(
+            branchId: int.tryParse(state.pathParameters['branchId'] ?? ''),
+            terminalCode: state.pathParameters['terminalCode'],
+          );
+        },
+      ),
+      GoRoute(
         path: CustomerDisplayPage.routePath,
         builder: (context, state) => const CustomerDisplayPage(),
       ),

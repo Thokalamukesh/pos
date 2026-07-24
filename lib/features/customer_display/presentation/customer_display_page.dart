@@ -31,6 +31,11 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(customerDisplayControllerProvider.notifier).showOrderBoard();
+      }
+    });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -200,6 +205,666 @@ class _CustomerDisplayPageState extends ConsumerState<CustomerDisplayPage> {
       },
     );
   }
+}
+
+class CustomerCartDisplayPage extends ConsumerStatefulWidget {
+  const CustomerCartDisplayPage({super.key, this.branchId, this.terminalCode});
+
+  static const routePath = '/customer-cart-display';
+
+  static String routeFor({
+    required int branchId,
+    required String terminalCode,
+  }) {
+    return '/order/oneness/display/$branchId/${Uri.encodeComponent(terminalCode)}';
+  }
+
+  final int? branchId;
+  final String? terminalCode;
+
+  @override
+  ConsumerState<CustomerCartDisplayPage> createState() =>
+      _CustomerCartDisplayPageState();
+}
+
+class _CustomerCartDisplayPageState
+    extends ConsumerState<CustomerCartDisplayPage> {
+  Timer? _clockTimer;
+  DateTime _now = DateTime.now();
+  bool _fullscreen = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref
+            .read(customerDisplayControllerProvider.notifier)
+            .showCartDisplay(
+              branchId: widget.branchId,
+              terminalCode: widget.terminalCode,
+            );
+      }
+    });
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _clockTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => setState(() => _now = DateTime.now()),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant CustomerCartDisplayPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.branchId != widget.branchId ||
+        oldWidget.terminalCode != widget.terminalCode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref
+              .read(customerDisplayControllerProvider.notifier)
+              .showCartDisplay(
+                branchId: widget.branchId,
+                terminalCode: widget.terminalCode,
+              );
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(customerDisplayControllerProvider);
+    final size = MediaQuery.sizeOf(context);
+    final compact = size.width < 760;
+
+    return Scaffold(
+      backgroundColor: _CartDisplayColors.background,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: _CartDisplayBackdrop()),
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 860),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 18 : 28,
+                    vertical: compact ? 18 : 34,
+                  ),
+                  child: Column(
+                    children: [
+                      _CartDisplayTopBar(
+                        state: state,
+                        now: _now,
+                        fullscreen: _fullscreen,
+                        onFullscreen: _toggleFullscreen,
+                      ),
+                      SizedBox(height: compact ? 26 : 42),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: _CartDisplayContent(
+                            state: state,
+                            compact: compact,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (state.isLoading)
+            const Positioned.fill(
+              child: ColoredBox(
+                color: Color(0x33FFFFFF),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    color: _CartDisplayColors.purple,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleFullscreen() async {
+    setState(() => _fullscreen = !_fullscreen);
+    await SystemChrome.setEnabledSystemUIMode(
+      _fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
+  }
+}
+
+class _CartDisplayTopBar extends StatelessWidget {
+  const _CartDisplayTopBar({
+    required this.state,
+    required this.now,
+    required this.fullscreen,
+    required this.onFullscreen,
+  });
+
+  final CustomerDisplayState state;
+  final DateTime now;
+  final bool fullscreen;
+  final VoidCallback onFullscreen;
+
+  @override
+  Widget build(BuildContext context) {
+    final time = DateFormat('HH:mm').format(now);
+    final date = DateFormat('EEEE d MMMM').format(now);
+    return Row(
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE9E4F8)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(9),
+            child: Image.asset('assets/images/mainlogo.png'),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                state.restaurantName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _CartDisplayColors.purple,
+                  fontSize: 28,
+                  height: 1.05,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                '${state.branchName} · ${state.terminalCode}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              time,
+              style: const TextStyle(
+                color: Color(0xFF111827),
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              date,
+              style: const TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(width: 18),
+        Tooltip(
+          message: fullscreen ? 'Exit fullscreen' : 'Fullscreen',
+          child: SizedBox.square(
+            dimension: 48,
+            child: IconButton(
+              onPressed: onFullscreen,
+              style: IconButton.styleFrom(
+                foregroundColor: const Color(0xFF2563EB),
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFFBFDBFE), width: 1.5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: Icon(fullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CartDisplayContent extends StatelessWidget {
+  const _CartDisplayContent({required this.state, required this.compact});
+
+  final CustomerDisplayState state;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final cart = state.cart;
+    final items = cart.items;
+    final money = NumberFormat.simpleCurrency(name: cart.currency);
+    final total = cart.total > 0
+        ? cart.total
+        : items.fold<double>(0, (sum, item) => sum + item.lineTotal);
+    final subtotal = cart.subtotal > 0 ? cart.subtotal : total;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _CartItemsCard(items: items, money: money, compact: compact),
+        const SizedBox(height: 20),
+        _CartTotalsCard(subtotal: subtotal, total: total, money: money),
+        const SizedBox(height: 44),
+        const Text(
+          'Thank you for dining with us!',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(0xFF111827),
+            fontSize: 21,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          items.isEmpty
+              ? 'Your order will appear here once items are added.'
+              : 'Please proceed to payment to finalize your order.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Color(0xFF64748B),
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        if (state.errorMessage != null) ...[
+          const SizedBox(height: 18),
+          Text(
+            state.errorMessage!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFFDC2626),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CartItemsCard extends StatelessWidget {
+  const _CartItemsCard({
+    required this.items,
+    required this.money,
+    required this.compact,
+  });
+
+  final List<CustomerCartItem> items;
+  final NumberFormat money;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 30,
+            offset: Offset(0, 18),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              compact ? 18 : 34,
+              compact ? 20 : 28,
+              compact ? 18 : 34,
+              compact ? 18 : 26,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3E8FF),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: const Icon(
+                    Icons.shopping_cart_outlined,
+                    color: _CartDisplayColors.purple,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 15),
+                const Expanded(
+                  child: Text(
+                    'Review Your Order',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xFF030712),
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _CartDisplayColors.purple,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x558B5CF6),
+                        blurRadius: 20,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    '${items.length} item${items.length == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            height: 56,
+            color: const Color(0xFFF8FAFC),
+            padding: EdgeInsets.symmetric(horizontal: compact ? 18 : 34),
+            child: const Row(
+              children: [
+                SizedBox(
+                  width: 70,
+                  child: Text('QTY', style: _cartHeaderStyle),
+                ),
+                Expanded(child: Text('ITEM NAME', style: _cartHeaderStyle)),
+                SizedBox(
+                  width: 132,
+                  child: Text(
+                    'AMOUNT',
+                    textAlign: TextAlign.right,
+                    style: _cartHeaderStyle,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 44),
+              child: Text(
+                'No items in the cart',
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            )
+          else
+            for (var index = 0; index < items.length; index += 1)
+              _CartItemRow(
+                item: items[index],
+                money: money,
+                compact: compact,
+                showDivider: index != items.length - 1,
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CartItemRow extends StatelessWidget {
+  const _CartItemRow({
+    required this.item,
+    required this.money,
+    required this.compact,
+    required this.showDivider,
+  });
+
+  final CustomerCartItem item;
+  final NumberFormat money;
+  final bool compact;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: compact ? 82 : 96,
+      padding: EdgeInsets.symmetric(horizontal: compact ? 18 : 34),
+      decoration: BoxDecoration(
+        border: showDivider
+            ? const Border(bottom: BorderSide(color: Color(0xFFF1F5F9)))
+            : null,
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 70,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5F0FF),
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: const Color(0xFFE9D5FF)),
+                ),
+                child: Text(
+                  item.quantity.toString(),
+                  style: const TextStyle(
+                    color: _CartDisplayColors.purple,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              item.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF111827),
+                fontSize: 21,
+                height: 1.15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 132,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                money.format(item.lineTotal),
+                style: const TextStyle(
+                  color: Color(0xFF030712),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CartTotalsCard extends StatelessWidget {
+  const _CartTotalsCard({
+    required this.subtotal,
+    required this.total,
+    required this.money,
+  });
+
+  final double subtotal;
+  final double total;
+  final NumberFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(34, 26, 34, 30),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 28,
+            offset: Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Subtotal',
+                  style: TextStyle(
+                    color: Color(0xFF475569),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                money.format(subtotal),
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 19,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          const SizedBox(height: 26),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Grand Total',
+                  style: TextStyle(
+                    color: Color(0xFF030712),
+                    fontSize: 29,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  money.format(total),
+                  style: const TextStyle(
+                    color: _CartDisplayColors.purple,
+                    fontSize: 44,
+                    height: 0.95,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CartDisplayBackdrop extends StatelessWidget {
+  const _CartDisplayBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: const Alignment(-0.25, -0.25),
+          radius: 0.78,
+          colors: [
+            _CartDisplayColors.purple.withValues(alpha: 0.08),
+            Colors.white.withValues(alpha: 0),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+const _cartHeaderStyle = TextStyle(
+  color: Color(0xFF64748B),
+  fontSize: 14,
+  letterSpacing: 1.8,
+  fontWeight: FontWeight.w900,
+);
+
+class _CartDisplayColors {
+  const _CartDisplayColors._();
+
+  static const background = Color(0xFFFEFEFF);
+  static const purple = Color(0xFF8B5CF6);
 }
 
 class _TopBar extends StatelessWidget {
