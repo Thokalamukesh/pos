@@ -9,8 +9,10 @@ import 'package:intl/intl.dart';
 import '../../auth/auth_controller.dart';
 import '../../auth/login_screen.dart';
 import '../../display/kitchen_display_screen.dart';
+import '../../pos/pos_shell_screen.dart';
 import '../application/customer_display_controller.dart';
 import '../domain/customer_display_models.dart';
+import '../../../widgets/exit_confirmation_dialog.dart';
 
 class CustomerDisplayPage extends ConsumerStatefulWidget {
   const CustomerDisplayPage({super.key});
@@ -305,6 +307,7 @@ class _CustomerCartDisplayPageState
                         now: _now,
                         fullscreen: _fullscreen,
                         onFullscreen: _toggleFullscreen,
+                        onExitToPos: _exitToPos,
                       ),
                       SizedBox(height: compact ? 26 : 42),
                       Expanded(
@@ -344,6 +347,19 @@ class _CustomerCartDisplayPageState
       _fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
     );
   }
+
+  Future<void> _exitToPos() async {
+    final shouldExit = await showExitConfirmationDialog(
+      context,
+      title: 'Exit customer display?',
+      message: 'Return to the POS screen?',
+      confirmLabel: 'Go to POS',
+    );
+    if (!shouldExit || !mounted) {
+      return;
+    }
+    context.go(PosShellScreen.routePath);
+  }
 }
 
 class _CartDisplayTopBar extends StatelessWidget {
@@ -352,12 +368,14 @@ class _CartDisplayTopBar extends StatelessWidget {
     required this.now,
     required this.fullscreen,
     required this.onFullscreen,
+    required this.onExitToPos,
   });
 
   final CustomerDisplayState state;
   final DateTime now;
   final bool fullscreen;
   final VoidCallback onFullscreen;
+  final VoidCallback onExitToPos;
 
   @override
   Widget build(BuildContext context) {
@@ -454,6 +472,25 @@ class _CartDisplayTopBar extends StatelessWidget {
                 ),
               ),
               icon: Icon(fullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Tooltip(
+          message: 'Back to POS',
+          child: SizedBox.square(
+            dimension: 48,
+            child: IconButton(
+              onPressed: onExitToPos,
+              style: IconButton.styleFrom(
+                foregroundColor: const Color(0xFF0F172A),
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.logout),
             ),
           ),
         ),
