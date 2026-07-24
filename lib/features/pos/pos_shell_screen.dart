@@ -7083,17 +7083,15 @@ String _reportHtmlFromPrintObject(ReceiptPrintObject receipt) {
         );
         break;
       case 'columns':
-      case 'table':
-        final columns = command['columns'];
+        final columns = command['columns'] ?? command['items'];
         if (columns is List && columns.isNotEmpty) {
-          final cells = columns.map((cell) {
-            final text = cell is Map
-                ? _stringValue(cell['text'] ?? cell['value'])
-                : _stringValue(cell);
-            return '<span>${_escapeReportHtml(text)}</span>';
-          }).join();
-          buffer.writeln('<div class="row">$cells</div>');
+          buffer.writeln(
+            '<pre>${_escapeReportHtml(_reportColumnLine(columns.map(_reportTableColumnLabel).toList()))}</pre>',
+          );
         }
+        break;
+      case 'table':
+        buffer.write(_reportTableHtml(command));
         break;
       default:
         final text = _stringValue(
@@ -7120,6 +7118,108 @@ String _reportHtmlFromPrintObject(ReceiptPrintObject receipt) {
     return commandsHtml;
   }
   return _reportHtmlFromDocument(receipt.raw['document']);
+}
+
+String _reportTableHtml(Map<String, dynamic> command) {
+  final columns = _reportTableColumns(command);
+  final rows = _reportTableRows(command);
+  if (columns.isEmpty && rows.isEmpty) {
+    return '';
+  }
+  final buffer = StringBuffer();
+  if (columns.isNotEmpty) {
+    buffer.writeln(
+      '<pre class="bold">${_escapeReportHtml(_reportColumnLine(columns.map(_reportTableColumnLabel).toList()))}</pre>',
+    );
+    buffer.writeln('<div class="line"></div>');
+  }
+  for (final row in rows) {
+    final cells = _reportTableRowCells(row, columns);
+    if (cells.isEmpty) {
+      continue;
+    }
+    buffer.writeln('<pre>${_escapeReportHtml(_reportColumnLine(cells))}</pre>');
+  }
+  return buffer.toString();
+}
+
+List<Object?> _reportTableColumns(Map<String, dynamic> command) {
+  final value = command['columns'] ?? command['headers'] ?? command['headings'];
+  return value is List ? List<Object?>.from(value) : const <Object?>[];
+}
+
+List<Object?> _reportTableRows(Map<String, dynamic> command) {
+  final value = command['rows'] ?? command['items'] ?? command['data'];
+  return value is List ? List<Object?>.from(value) : const <Object?>[];
+}
+
+String _reportTableColumnLabel(Object? column) {
+  if (column is Map) {
+    return _stringValue(
+      column['label'] ?? column['title'] ?? column['text'] ?? column['name'],
+    );
+  }
+  return _stringValue(column);
+}
+
+String _reportTableColumnKey(Object? column) {
+  if (column is Map) {
+    return _stringValue(column['key'] ?? column['field'] ?? column['name']);
+  }
+  return _stringValue(
+    column,
+  ).toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+}
+
+List<Object?> _reportTableRowCells(Object? row, List<Object?> columns) {
+  if (row is List) {
+    return List<Object?>.from(row);
+  }
+  if (row is! Map) {
+    final text = _stringValue(row);
+    return text.isEmpty ? const <Object?>[] : <Object?>[text];
+  }
+  final map = Map<String, dynamic>.from(row);
+  if (columns.isNotEmpty) {
+    return columns.map((column) {
+      final key = _reportTableColumnKey(column);
+      return map[key] ??
+          map[key.replaceAll('_', '-')] ??
+          map[key.replaceAll('_', '')] ??
+          map[_reportTableColumnLabel(column)];
+    }).toList();
+  }
+  return map.values.toList();
+}
+
+String _reportColumnLine(Iterable<Object?> values) {
+  final cells = values.map(_stringValue).toList();
+  final widths = _reportColumnWidths(cells.length);
+  final parts = <String>[];
+  for (var index = 0; index < cells.length; index += 1) {
+    final width = widths[index];
+    final text = cells[index];
+    final clipped = text.length > width ? text.substring(0, width) : text;
+    final amountColumn = index == cells.length - 1;
+    parts.add(amountColumn ? clipped.padLeft(width) : clipped.padRight(width));
+  }
+  return parts.join(' ');
+}
+
+List<int> _reportColumnWidths(int count) {
+  if (count <= 1) {
+    return const [32];
+  }
+  if (count == 2) {
+    return const [21, 10];
+  }
+  if (count == 3) {
+    return const [4, 16, 10];
+  }
+  if (count == 4) {
+    return const [4, 10, 4, 10];
+  }
+  return List<int>.filled(count, 6);
 }
 
 String _reportHtmlFromDocument(Object? value) {

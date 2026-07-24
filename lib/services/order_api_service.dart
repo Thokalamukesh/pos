@@ -258,12 +258,31 @@ class PosOrderApiService {
   Future<ReceiptPrintObject> fetchDailyReportPrintObject({
     String type = 'consolidated',
   }) async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '${AppConfig.apiPrefix}/pos/reports/thermal-print',
-      queryParameters: _todayReportQueryParameters(type: type),
-    );
-    return ReceiptPrintObject.fromResponse(unwrapDataMap(response.data));
+    DioException? lastValidationError;
+    for (final reportType in _reportTypeAliases(type)) {
+      try {
+        final response = await _dio.get<Map<String, dynamic>>(
+          '${AppConfig.apiPrefix}/pos/reports/thermal-print',
+          queryParameters: _todayReportQueryParameters(type: reportType),
+        );
+        return ReceiptPrintObject.fromResponse(unwrapDataMap(response.data));
+      } on DioException catch (error) {
+        final status = error.response?.statusCode;
+        if (status != 400 && status != 404 && status != 405 && status != 422) {
+          rethrow;
+        }
+        lastValidationError = error;
+      }
+    }
+    throw lastValidationError!;
   }
+}
+
+List<String> _reportTypeAliases(String type) {
+  return switch (type) {
+    'item' => const ['item_wise', 'itemwise', 'item-wise', 'item'],
+    _ => [type],
+  };
 }
 
 List<Map<String, dynamic>> _orderRowsFromResponse(Object? responseData) {

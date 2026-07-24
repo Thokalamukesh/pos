@@ -487,6 +487,24 @@ class ReceiptPrinterService {
         return Future.value(
           _renderRow(generator, command, lineChars, currencyCode: currencyCode),
         );
+      case 'columns':
+        final columns = command['columns'] ?? command['items'];
+        if (columns is List && columns.isNotEmpty) {
+          return Future.value(
+            _renderColumns(
+              generator,
+              columns,
+              lineChars,
+              _styles(command),
+              currencyCode: currencyCode,
+            ),
+          );
+        }
+        return Future.value(const <int>[]);
+      case 'table':
+        return Future.value(
+          _renderTable(generator, command, lineChars, currencyCode),
+        );
       case 'qr':
       case 'qrcode':
         final data = _stringValue(
@@ -664,7 +682,12 @@ class ReceiptPrinterService {
       if (value is Map) {
         return _ColumnCell(
           text: _printerText(
-            _stringValue(value['text'] ?? value['value']),
+            _stringValue(
+              value['text'] ??
+                  value['value'] ??
+                  value['label'] ??
+                  value['title'],
+            ),
             currencyCode: currencyCode,
           ),
           align: _align(value['align']),
@@ -705,6 +728,48 @@ class ReceiptPrinterService {
       styles: styles,
       currencyCode: currencyCode,
     );
+  }
+
+  List<int> _renderTable(
+    Generator generator,
+    Map<String, dynamic> command,
+    int lineChars,
+    String? currencyCode,
+  ) {
+    final bytes = <int>[];
+    final columns = _tableColumns(command);
+    final rows = _tableRows(command);
+    if (columns.isEmpty && rows.isEmpty) {
+      return bytes;
+    }
+    if (columns.isNotEmpty) {
+      bytes.addAll(
+        _renderColumns(
+          generator,
+          columns.map(_tableColumnLabel).toList(),
+          lineChars,
+          const PosStyles(bold: true),
+          currencyCode: currencyCode,
+        ),
+      );
+      bytes.addAll(generator.hr());
+    }
+    for (final row in rows) {
+      final cells = _tableRowCells(row, columns);
+      if (cells.isEmpty) {
+        continue;
+      }
+      bytes.addAll(
+        _renderColumns(
+          generator,
+          cells,
+          lineChars,
+          _styles(command),
+          currencyCode: currencyCode,
+        ),
+      );
+    }
+    return bytes;
   }
 }
 
@@ -878,12 +943,67 @@ List<int> _columnWidths(int count, int lineChars) {
     final last = lineChars <= 32 ? 9 : 11;
     return [first, lineChars - first - last - 2, last];
   }
+  if (count == 4) {
+    final first = lineChars <= 32 ? 4 : 5;
+    final third = lineChars <= 32 ? 4 : 5;
+    final last = lineChars <= 32 ? 9 : 11;
+    return [first, lineChars - first - third - last - 3, third, last];
+  }
 
   final gapChars = count - 1;
   final base = (lineChars - gapChars) ~/ count;
   final widths = List<int>.filled(count, base);
   widths[count - 1] += lineChars - gapChars - widths.fold(0, (a, b) => a + b);
   return widths;
+}
+
+List<Object?> _tableColumns(Map<String, dynamic> command) {
+  final value = command['columns'] ?? command['headers'] ?? command['headings'];
+  return value is List ? List<Object?>.from(value) : const <Object?>[];
+}
+
+List<Object?> _tableRows(Map<String, dynamic> command) {
+  final value = command['rows'] ?? command['items'] ?? command['data'];
+  return value is List ? List<Object?>.from(value) : const <Object?>[];
+}
+
+String _tableColumnLabel(Object? column) {
+  if (column is Map) {
+    return _stringValue(
+      column['label'] ?? column['title'] ?? column['text'] ?? column['name'],
+    );
+  }
+  return _stringValue(column);
+}
+
+String _tableColumnKey(Object? column) {
+  if (column is Map) {
+    return _stringValue(column['key'] ?? column['field'] ?? column['name']);
+  }
+  return _stringValue(
+    column,
+  ).toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+}
+
+List<Object?> _tableRowCells(Object? row, List<Object?> columns) {
+  if (row is List) {
+    return List<Object?>.from(row);
+  }
+  if (row is! Map) {
+    final text = _stringValue(row);
+    return text.isEmpty ? const <Object?>[] : <Object?>[text];
+  }
+  final map = Map<String, dynamic>.from(row);
+  if (columns.isNotEmpty) {
+    return columns.map((column) {
+      final key = _tableColumnKey(column);
+      return map[key] ??
+          map[key.replaceAll('_', '-')] ??
+          map[key.replaceAll('_', '')] ??
+          map[_tableColumnLabel(column)];
+    }).toList();
+  }
+  return map.values.toList();
 }
 
 String _fitCell(String value, int width, PosAlign align) {

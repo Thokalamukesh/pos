@@ -585,6 +585,44 @@ void main() {
     expect(text, isNot(contains('·')));
   });
 
+  test('receipt printer renders item wise table columns compactly', () async {
+    final receipt = ReceiptPrintObject.fromResponse({
+      'order': {'id': 88},
+      'print_object': {
+        'paper': '56mm',
+        'print_object': [
+          {'type': 'init'},
+          {'type': 'text', 'text': 'Item wise report', 'align': 'center'},
+          {
+            'type': 'table',
+            'columns': [
+              {'key': 'code', 'label': 'Code'},
+              {'key': 'name', 'label': 'Item'},
+              {'key': 'qty', 'label': 'Qty'},
+              {'key': 'amount', 'label': 'Amount'},
+            ],
+            'rows': [
+              {
+                'code': '101',
+                'name': 'Ghee Roast',
+                'qty': 2,
+                'amount': 'Rs 280.00',
+              },
+            ],
+          },
+          {'type': 'cut'},
+        ],
+      },
+    });
+
+    final bytes = await ReceiptPrinterService().buildEscPos(receipt);
+    final text = String.fromCharCodes(bytes);
+
+    expect(text, contains('Code'));
+    expect(text, contains('Ghee'));
+    expect(text, contains('Rs 280.00'));
+  });
+
   test(
     'receipt printer preserves server receipt footer and branding',
     () async {
