@@ -150,7 +150,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   Map<String, dynamic>? _currentShift;
   List<Map<String, dynamic>>? _menuCategoryData;
   bool _isCharging = false;
-  bool _isSendingKot = false;
   bool _shiftBusy = false;
   int _nextHeldToken = 1;
   Timer? _displaySyncDebounce;
@@ -893,63 +892,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       return;
     }
     unawaited(_parkCurrentOrder());
-  }
-
-  void _sendKot() {
-    if (_cart.isEmpty || _isCharging || _isSendingKot) {
-      return;
-    }
-    unawaited(_sendKotOrder());
-  }
-
-  Future<void> _sendKotOrder() async {
-    if (_cart.isEmpty || _isCharging || _isSendingKot) {
-      return;
-    }
-    if (widget.data.requireShiftForPos && _currentShift == null) {
-      _showSnack('Open shift before sending KOT.', isError: true);
-      await _openShift();
-      return;
-    }
-    final existingOrderId = _resumedServerOrderId;
-    if (existingOrderId != null) {
-      _showNotice('This order is already sent to kitchen.');
-      return;
-    }
-
-    final localTicket = _snapshotHeldTicket();
-    setState(() => _isSendingKot = true);
-    try {
-      final order = await ref
-          .read(posOrderRepositoryProvider)
-          .createOrder(_kotOrderRequest());
-      final serverTicket =
-          _heldTicketFromOrderSummary(
-            order.raw,
-          )?.copyWith(lines: List<_CartLine>.of(_cart)) ??
-          _heldTicketFromOrderSummary(
-            order.order,
-          )?.copyWith(lines: List<_CartLine>.of(_cart)) ??
-          _serverTicketFromKotOrder(order, localTicket);
-
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _heldTickets.add(serverTicket);
-        _clearOrderState();
-      });
-      _queueDisplaySync(clear: true);
-      _showNotice('KOT sent ${order.displayNumber}.');
-    } on Object catch (error) {
-      if (mounted) {
-        _showSnack('KOT failed: ${_errorMessage(error)}', isError: true);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSendingKot = false);
-      }
-    }
   }
 
   Future<void> _parkCurrentOrder() async {
@@ -2092,79 +2034,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     );
   }
 
-  CreatePosOrderRequest _kotOrderRequest() {
-    return CreatePosOrderRequest(
-      type: _orderType,
-      tableId: _orderType == 'dine_in' ? _selectedTable?.id : null,
-      posTerminalCode: widget.terminal.terminalCode,
-      customerName: _customerName ?? 'Guest',
-      customerPhone: _customerPhone,
-      customerAddress: _customerAddress,
-      notes: _orderNotes,
-      discount: _discount?.toApiPayload(),
-      items: _cart.map((line) {
-        return PosOrderItemRequest(
-          menuItemId: apiIdentifierFromString(line.item.id),
-          variantId: line.variant == null
-              ? null
-              : apiIdentifierFromString(line.variant!.id),
-          quantity: line.quantity,
-          notes: line.note,
-          modifiers: line.modifiers.map((modifier) {
-            return modifier.toApiPayload();
-          }).toList(),
-        );
-      }).toList(),
-    );
-  }
-
-  _HeldTicket _serverTicketFromKotOrder(
-    PosOrderResult order,
-    _HeldTicket fallback,
-  ) {
-    final source = {...order.raw, ...order.order};
-    final token = _intValue(
-      source['token'] ??
-          source['display_token'] ??
-          source['token_no'] ??
-          source['id'] ??
-          order.id,
-      fallback: fallback.token,
-    );
-    return _HeldTicket(
-      serverOrderId: order.id,
-      orderNumber: _nullableString(
-        source['order_number'] ??
-            source['order_no'] ??
-            source['number'] ??
-            source['reference'],
-      ),
-      token: token,
-      lines: List<_CartLine>.of(fallback.lines),
-      orderType: fallback.orderType,
-      customerName: fallback.customerName,
-      customerPhone: fallback.customerPhone,
-      customerAddress: fallback.customerAddress,
-      orderNotes: fallback.orderNotes,
-      table: fallback.table,
-      discount: fallback.discount,
-      createdAt:
-          DateTime.tryParse(
-            _stringValue(source['created_at'] ?? source['createdAt']),
-          ) ??
-          fallback.createdAt,
-      status: _nullableString(source['status']) ?? 'pending',
-      paymentStatus:
-          _nullableString(
-            source['payment_status'] ?? source['paymentStatus'],
-          ) ??
-          'pending',
-      canCollectPayment: true,
-      amountDue: order.total ?? fallback.total,
-      totalOverride: order.total ?? fallback.total,
-    );
-  }
-
   _HeldTicket? _heldTicketFromOrderSummary(Map<String, dynamic> json) {
     final order = _orderMapFrom(json);
     final id = _nullableInt(order['id'] ?? json['id']);
@@ -2439,7 +2308,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _discount = null;
     _resumedServerOrderId = null;
     _isCharging = false;
-    _isSendingKot = false;
   }
 
   void _showSnack(String message, {bool isError = false}) {
@@ -2594,7 +2462,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
             orderNoteEditorVisible: _orderNoteEditorVisible,
             orderNoteController: _orderNoteController,
             isCharging: _isCharging,
-            isSendingKot: _isSendingKot,
             customerSearchVisible: _customerSearchVisible,
             orderTypeExpanded: _orderTypeExpanded,
             heldTicketCount: _heldTickets.length,
@@ -2624,7 +2491,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
             onLineNote: _editLineNote,
             onRemove: _removeLine,
             onHold: _holdOrder,
-            onKot: _sendKot,
             onProceed: _proceedToPayment,
           );
 
@@ -4304,7 +4170,6 @@ class _CartPanel extends StatelessWidget {
     required this.orderNoteEditorVisible,
     required this.orderNoteController,
     required this.isCharging,
-    required this.isSendingKot,
     required this.customerSearchVisible,
     required this.orderTypeExpanded,
     required this.heldTicketCount,
@@ -4324,7 +4189,6 @@ class _CartPanel extends StatelessWidget {
     required this.onLineNote,
     required this.onRemove,
     required this.onHold,
-    required this.onKot,
     required this.onProceed,
   });
 
@@ -4340,7 +4204,6 @@ class _CartPanel extends StatelessWidget {
   final bool orderNoteEditorVisible;
   final TextEditingController orderNoteController;
   final bool isCharging;
-  final bool isSendingKot;
   final bool customerSearchVisible;
   final bool orderTypeExpanded;
   final int heldTicketCount;
@@ -4360,7 +4223,6 @@ class _CartPanel extends StatelessWidget {
   final ValueChanged<_CartLine> onLineNote;
   final ValueChanged<_CartLine> onRemove;
   final VoidCallback onHold;
-  final VoidCallback onKot;
   final VoidCallback onProceed;
 
   @override
@@ -4654,58 +4516,10 @@ class _CartPanel extends StatelessWidget {
                                   ),
                                 ),
                                 onPressed: hasLines && !isCharging
-                                    ? (isSendingKot ? null : onHold)
+                                    ? onHold
                                     : null,
                                 icon: const Icon(Icons.pause),
-                                label: const Text('Hold'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SizedBox(
-                              height: 58,
-                              child: FilledButton.icon(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFF059669),
-                                  foregroundColor: Colors.white,
-                                  disabledBackgroundColor: const Color(
-                                    0xFFF8FAFC,
-                                  ),
-                                  disabledForegroundColor: const Color(
-                                    0xFF94A3B8,
-                                  ),
-                                  side: BorderSide(
-                                    color: hasLines
-                                        ? const Color(0xFF059669)
-                                        : const Color(0xFFE2E8F0),
-                                  ),
-                                  elevation: hasLines ? 3 : 0,
-                                  shadowColor: const Color(
-                                    0xFF059669,
-                                  ).withValues(alpha: 0.22),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                onPressed:
-                                    hasLines && !isCharging && !isSendingKot
-                                    ? onKot
-                                    : null,
-                                icon: isSendingKot
-                                    ? const SizedBox.square(
-                                        dimension: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.soup_kitchen_outlined),
-                                label: const Text('KOT'),
+                                label: const Text('Hold order'),
                               ),
                             ),
                           ),
@@ -4740,8 +4554,7 @@ class _CartPanel extends StatelessWidget {
                                     fontSize: 15,
                                   ),
                                 ),
-                                onPressed:
-                                    hasLines && !isCharging && !isSendingKot
+                                onPressed: hasLines && !isCharging
                                     ? onProceed
                                     : null,
                                 icon: isCharging
@@ -4753,7 +4566,7 @@ class _CartPanel extends StatelessWidget {
                                         ),
                                       )
                                     : const Icon(Icons.play_arrow),
-                                label: const Text('Pay'),
+                                label: const Text('Proceed'),
                               ),
                             ),
                           ),
