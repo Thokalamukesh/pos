@@ -33,6 +33,7 @@ import '../auth/auth_controller.dart';
 import '../auth/login_screen.dart';
 import '../bootstrap/bootstrap_providers.dart';
 import '../customer_display/presentation/customer_display_page.dart';
+import '../display/kitchen_display_screen.dart';
 import '../terminal/terminal_controller.dart';
 import '../terminal/terminal_selection_screen.dart';
 
@@ -398,6 +399,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
         terminalCode: widget.terminal.terminalCode,
       ),
     );
+  }
+
+  Future<void> _openKitchenDisplay() async {
+    await context.push(KitchenDisplayScreen.routePath);
   }
 
   Future<void> _openDailyReport() async {
@@ -2514,6 +2519,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
                   data: widget.data,
                   terminal: widget.terminal,
                   staffName: staffName,
+                  onKot: _openKitchenDisplay,
                   onCustomerDisplay: _openCustomerDisplay,
                   onOrders: _openTicketsDrawer,
                   onDailyReport: _openDailyReport,
@@ -2604,6 +2610,7 @@ class _PosHeader extends StatelessWidget {
     required this.data,
     required this.terminal,
     required this.staffName,
+    required this.onKot,
     required this.onCustomerDisplay,
     required this.onOrders,
     required this.onDailyReport,
@@ -2619,6 +2626,7 @@ class _PosHeader extends StatelessWidget {
   final PosBootstrap data;
   final TerminalContext terminal;
   final String staffName;
+  final VoidCallback onKot;
   final VoidCallback onCustomerDisplay;
   final VoidCallback onOrders;
   final VoidCallback onDailyReport;
@@ -2721,6 +2729,16 @@ class _PosHeader extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
               ],
+              _HeaderActionButton(
+                compact: compact || tight,
+                iconButtonStyle: iconButtonStyle,
+                tooltip: 'Kitchen display',
+                label: 'KOT',
+                icon: Icons.soup_kitchen_outlined,
+                iconColor: const Color(0xFF059669),
+                onPressed: onKot,
+              ),
+              const SizedBox(width: 8),
               _HeaderActionButton(
                 compact: compact || tight,
                 iconButtonStyle: iconButtonStyle,
