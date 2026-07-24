@@ -280,7 +280,7 @@ class PosOrderApiService {
 
 List<String> _reportTypeAliases(String type) {
   return switch (type) {
-    'item' => const ['item_wise', 'itemwise', 'item-wise', 'item'],
+    'item' => const ['item', 'item_wise', 'itemwise', 'item-wise'],
     _ => [type],
   };
 }

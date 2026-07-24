@@ -183,7 +183,7 @@ class CustomerDisplayController extends Notifier<CustomerDisplayState> {
         preparing: board.preparing,
         ready: board.ready,
         history: board.history,
-        cart: const CustomerCart(active: false),
+        cart: board.cart,
         lastUpdated: DateTime.now(),
         clearError: true,
       );

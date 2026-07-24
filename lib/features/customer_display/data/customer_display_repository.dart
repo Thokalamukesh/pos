@@ -87,6 +87,27 @@ class CustomerDisplayRepository {
     required int branchId,
     required String terminalCode,
   }) async {
+    final setup = await readSetup();
+    final syncToken = setup.syncToken.trim();
+    if (syncToken.isNotEmpty) {
+      try {
+        final response = await _dio.get<Map<String, dynamic>>(
+          '${AppConfig.apiPrefix}/displays/sync/$branchId/'
+          '${Uri.encodeComponent(terminalCode)}',
+          options: Options(
+            headers: {'X-Terminal-Token': syncToken},
+            extra: const {'skipAuth': true},
+          ),
+        );
+        return CustomerBoardSnapshot.fromJson(response.data ?? const {});
+      } on DioException catch (error) {
+        final status = error.response?.statusCode;
+        if (status != 401 && status != 403 && status != 404 && status != 405) {
+          throw AppException.fromDio(error);
+        }
+      }
+    }
+
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '${AppConfig.apiPrefix}/display/$branchId/'

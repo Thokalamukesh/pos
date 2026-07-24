@@ -555,7 +555,7 @@ class _KitchenTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           _KitchenToolbarButton(
-            tooltip: 'Update orders',
+            tooltip: 'Software update',
             label: 'Update',
             icon: Icons.refresh,
             primary: true,

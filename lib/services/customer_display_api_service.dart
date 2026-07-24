@@ -25,7 +25,10 @@ class CustomerDisplayApiService {
     final response = await _dio.post<Map<String, dynamic>>(
       _syncPath(branchId, terminalCode),
       data: payload,
-      options: Options(headers: {'X-Terminal-Token': terminalToken}),
+      options: Options(
+        headers: {'X-Terminal-Token': terminalToken},
+        extra: {'skipAuth': true},
+      ),
     );
     return unwrapDataMap(response.data);
   }
@@ -37,7 +40,10 @@ class CustomerDisplayApiService {
   }) async {
     await _dio.delete<Map<String, dynamic>>(
       _syncPath(branchId, terminalCode),
-      options: Options(headers: {'X-Terminal-Token': terminalToken}),
+      options: Options(
+        headers: {'X-Terminal-Token': terminalToken},
+        extra: {'skipAuth': true},
+      ),
     );
   }
 

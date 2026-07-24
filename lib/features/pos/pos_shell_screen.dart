@@ -21,6 +21,7 @@ import '../../repositories/offline_order_repository.dart';
 import '../../repositories/pos_menu_repository.dart';
 import '../../repositories/printer_repository.dart';
 import '../../repositories/shift_repository.dart';
+import '../../services/customer_display_api_service.dart';
 import '../../services/fullscreen/fullscreen_service.dart';
 import '../../services/offline_order_sync_service.dart';
 import '../../services/language_api_service.dart';
@@ -464,6 +465,65 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
 
   void _queueDisplaySync({bool clear = false}) {
     _displaySyncDebounce?.cancel();
+    final syncToken = widget.terminal.syncToken?.trim();
+    if (syncToken == null || syncToken.isEmpty) {
+      return;
+    }
+    _displaySyncDebounce = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) {
+        return;
+      }
+      final service = ref.read(customerDisplayApiServiceProvider);
+      final branchId = widget.terminal.branchId;
+      final terminalCode = widget.terminal.terminalCode;
+      final request = clear
+          ? service.clear(
+              branchId: branchId,
+              terminalCode: terminalCode,
+              terminalToken: syncToken,
+            )
+          : service.sync(
+              branchId: branchId,
+              terminalCode: terminalCode,
+              terminalToken: syncToken,
+              payload: _customerDisplaySyncPayload(),
+            );
+      unawaited(
+        request.catchError((Object error) {
+          debugPrint(
+            '[CUSTOMER_DISPLAY][POS] sync failed: ${_errorMessage(error)}',
+          );
+        }),
+      );
+    });
+  }
+
+  Map<String, dynamic> _customerDisplaySyncPayload() {
+    final discountAmount = _discountAmount;
+    return <String, dynamic>{
+      'subtotal': _moneyValue(_subtotal),
+      'tax': 0,
+      'total': _moneyValue(_payable),
+      'currency': _currencyCode,
+      'discount': discountAmount <= 0
+          ? null
+          : <String, dynamic>{
+              'amount': _moneyValue(discountAmount),
+              'label': _discount?.type == 'percent'
+                  ? 'Discount ${_discount!.value.toStringAsFixed(0)}%'
+                  : 'Discount',
+              'reason': _discount?.reason ?? '',
+            },
+      'service_charge': null,
+      'items': _cart.map((line) {
+        return <String, dynamic>{
+          'name': line.displayName,
+          'quantity': line.quantity,
+          'price': _moneyValue(line.unitPrice),
+        };
+      }).toList(),
+      'extra_charges': const <Map<String, dynamic>>[],
+    };
   }
 
   Future<void> _toggleFullscreen() async {
@@ -858,10 +918,6 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   }
 
   Future<void> _openTicketsDrawer() async {
-    final tickets = await _loadTicketsForDrawer();
-    if (!mounted) {
-      return;
-    }
     final ticket = await showGeneralDialog<_HeldTicket>(
       context: context,
       barrierDismissible: true,
@@ -869,7 +925,11 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 160),
       pageBuilder: (context, animation, secondaryAnimation) {
-        return _HeldTicketsOverlay(tickets: tickets, money: _money);
+        return _HeldTicketsOverlay(
+          initialTickets: List<_HeldTicket>.of(_heldTickets),
+          loadTickets: _loadTicketsForDrawer,
+          money: _money,
+        );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
@@ -3113,7 +3173,7 @@ class _CategoryRailState extends State<_CategoryRail> {
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.symmetric(
         horizontal: 10,
-        vertical: widget.horizontal ? 8 : 14,
+        vertical: widget.horizontal ? 8 : 6,
       ),
       scrollDirection: widget.horizontal ? Axis.horizontal : Axis.vertical,
       itemCount: widget.categories.length,
@@ -3152,7 +3212,24 @@ class _CategoryRailState extends State<_CategoryRail> {
       child: Scrollbar(
         controller: _scrollController,
         thickness: 4,
-        child: list,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
+              child: Text(
+                'MENU',
+                style: TextStyle(
+                  color: _posMuted(context),
+                  fontSize: 11,
+                  letterSpacing: 0,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Expanded(child: list),
+          ],
+        ),
       ),
     );
   }
@@ -3237,7 +3314,7 @@ class _CategoryButton extends StatelessWidget {
                     color: active ? activeTextColor : _posText(context),
                     fontSize: compact ? 11 : 11.5,
                     height: 1,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -3756,7 +3833,7 @@ class _ProductCardState extends State<_ProductCard> {
                           color: _posText(context),
                           fontSize: widget.compact ? 13 : 15,
                           height: 1.15,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       const Spacer(),
@@ -3772,7 +3849,7 @@ class _ProductCardState extends State<_ProductCard> {
                                 color: const Color(0xFF4F46E5),
                                 fontSize: widget.compact ? 15 : 17,
                                 height: 1,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
@@ -7085,9 +7162,11 @@ String _reportHtmlFromPrintObject(ReceiptPrintObject receipt) {
       case 'columns':
         final columns = command['columns'] ?? command['items'];
         if (columns is List && columns.isNotEmpty) {
-          buffer.writeln(
-            '<pre>${_escapeReportHtml(_reportColumnLine(columns.map(_reportTableColumnLabel).toList()))}</pre>',
-          );
+          for (final line in _reportColumnLines(
+            columns.map(_reportTableColumnLabel).toList(),
+          )) {
+            buffer.writeln('<pre>${_escapeReportHtml(line)}</pre>');
+          }
         }
         break;
       case 'table':
@@ -7128,9 +7207,11 @@ String _reportTableHtml(Map<String, dynamic> command) {
   }
   final buffer = StringBuffer();
   if (columns.isNotEmpty) {
-    buffer.writeln(
-      '<pre class="bold">${_escapeReportHtml(_reportColumnLine(columns.map(_reportTableColumnLabel).toList()))}</pre>',
-    );
+    for (final line in _reportColumnLines(
+      columns.map(_reportTableColumnLabel).toList(),
+    )) {
+      buffer.writeln('<pre class="bold">${_escapeReportHtml(line)}</pre>');
+    }
     buffer.writeln('<div class="line"></div>');
   }
   for (final row in rows) {
@@ -7138,7 +7219,9 @@ String _reportTableHtml(Map<String, dynamic> command) {
     if (cells.isEmpty) {
       continue;
     }
-    buffer.writeln('<pre>${_escapeReportHtml(_reportColumnLine(cells))}</pre>');
+    for (final line in _reportColumnLines(cells)) {
+      buffer.writeln('<pre>${_escapeReportHtml(line)}</pre>');
+    }
   }
   return buffer.toString();
 }
@@ -7192,18 +7275,30 @@ List<Object?> _reportTableRowCells(Object? row, List<Object?> columns) {
   return map.values.toList();
 }
 
-String _reportColumnLine(Iterable<Object?> values) {
+List<String> _reportColumnLines(Iterable<Object?> values) {
   final cells = values.map(_stringValue).toList();
   final widths = _reportColumnWidths(cells.length);
-  final parts = <String>[];
+  final wrapped = <List<String>>[];
+  var maxLines = 1;
   for (var index = 0; index < cells.length; index += 1) {
-    final width = widths[index];
-    final text = cells[index];
-    final clipped = text.length > width ? text.substring(0, width) : text;
-    final amountColumn = index == cells.length - 1;
-    parts.add(amountColumn ? clipped.padLeft(width) : clipped.padRight(width));
+    final lines = _reportWrapCell(cells[index], widths[index]);
+    wrapped.add(lines);
+    maxLines = math.max(maxLines, lines.length);
   }
-  return parts.join(' ');
+  final rows = <String>[];
+  for (var lineIndex = 0; lineIndex < maxLines; lineIndex += 1) {
+    final parts = <String>[];
+    for (var column = 0; column < cells.length; column += 1) {
+      final width = widths[column];
+      final text = lineIndex < wrapped[column].length
+          ? wrapped[column][lineIndex]
+          : '';
+      final amountColumn = column == cells.length - 1;
+      parts.add(amountColumn ? text.padLeft(width) : text.padRight(width));
+    }
+    rows.add(parts.join(' ').trimRight());
+  }
+  return rows;
 }
 
 List<int> _reportColumnWidths(int count) {
@@ -7217,9 +7312,45 @@ List<int> _reportColumnWidths(int count) {
     return const [4, 16, 10];
   }
   if (count == 4) {
-    return const [4, 10, 4, 10];
+    return const [4, 12, 3, 10];
   }
   return List<int>.filled(count, 6);
+}
+
+List<String> _reportWrapCell(String value, int width) {
+  final safeWidth = math.max(1, width);
+  final text = value.trim();
+  if (text.isEmpty) {
+    return [''];
+  }
+  final words = text.split(RegExp(r'\s+'));
+  final lines = <String>[];
+  var current = '';
+  for (final word in words) {
+    if (word.length > safeWidth) {
+      if (current.isNotEmpty) {
+        lines.add(current);
+        current = '';
+      }
+      for (var index = 0; index < word.length; index += safeWidth) {
+        lines.add(
+          word.substring(index, math.min(index + safeWidth, word.length)),
+        );
+      }
+      continue;
+    }
+    final next = current.isEmpty ? word : '$current $word';
+    if (next.length > safeWidth) {
+      lines.add(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current.isNotEmpty) {
+    lines.add(current);
+  }
+  return lines.isEmpty ? [''] : lines;
 }
 
 String _reportHtmlFromDocument(Object? value) {
@@ -8877,6 +9008,7 @@ class _ItemOptionsDialogState extends State<_ItemOptionsDialog> {
   @override
   Widget build(BuildContext context) {
     var sectionNumber = 1;
+    final canSubmit = _validationMessage() == null;
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       backgroundColor: Colors.white,
@@ -9042,17 +9174,19 @@ class _ItemOptionsDialogState extends State<_ItemOptionsDialog> {
                       height: 60,
                       child: FilledButton(
                         style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFA5A4F2),
+                          backgroundColor: canSubmit
+                              ? const Color(0xFF4F46E5)
+                              : const Color(0xFFCBD5E1),
                           foregroundColor: Colors.white,
                           textStyle: const TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w800,
                           ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: _submit,
+                        onPressed: canSubmit ? _submit : null,
                         child: const Text('Add to ticket'),
                       ),
                     ),
@@ -9366,9 +9500,14 @@ class _SpecialInstructionsBox extends StatelessWidget {
 }
 
 class _HeldTicketsOverlay extends StatelessWidget {
-  const _HeldTicketsOverlay({required this.tickets, required this.money});
+  const _HeldTicketsOverlay({
+    required this.initialTickets,
+    required this.loadTickets,
+    required this.money,
+  });
 
-  final List<_HeldTicket> tickets;
+  final List<_HeldTicket> initialTickets;
+  final Future<List<_HeldTicket>> Function() loadTickets;
   final NumberFormat money;
 
   @override
@@ -9385,7 +9524,11 @@ class _HeldTicketsOverlay extends StatelessWidget {
           alignment: Alignment.center,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-            child: _HeldTicketsSheet(tickets: tickets, money: money),
+            child: _HeldTicketsSheet(
+              initialTickets: initialTickets,
+              loadTickets: loadTickets,
+              money: money,
+            ),
           ),
         ),
       ],
@@ -9394,20 +9537,40 @@ class _HeldTicketsOverlay extends StatelessWidget {
 }
 
 class _HeldTicketsSheet extends StatefulWidget {
-  const _HeldTicketsSheet({required this.tickets, required this.money});
+  const _HeldTicketsSheet({
+    required this.initialTickets,
+    required this.loadTickets,
+    required this.money,
+  });
 
-  final List<_HeldTicket> tickets;
+  final List<_HeldTicket> initialTickets;
+  final Future<List<_HeldTicket>> Function() loadTickets;
   final NumberFormat money;
 
   @override
   State<_HeldTicketsSheet> createState() => _HeldTicketsSheetState();
 }
 
+enum _OrdersMode { held, orders }
+
 enum _OrdersFilter { today, unpaid, sevenDays }
 
 class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
   final _searchController = TextEditingController();
+  late List<_HeldTicket> _tickets;
+  _OrdersMode _mode = _OrdersMode.orders;
   _OrdersFilter _filter = _OrdersFilter.today;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tickets = List<_HeldTicket>.of(widget.initialTickets);
+    if (widget.initialTickets.isNotEmpty) {
+      _mode = _OrdersMode.held;
+    }
+    unawaited(_refreshTickets());
+  }
 
   @override
   void dispose() {
@@ -9415,10 +9578,37 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
     super.dispose();
   }
 
+  Future<void> _refreshTickets() async {
+    setState(() => _loading = true);
+    try {
+      final tickets = await widget.loadTickets();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _tickets = tickets;
+        _loading = false;
+      });
+    } on Object {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  List<_HeldTicket> get _modeTickets {
+    return switch (_mode) {
+      _OrdersMode.held =>
+        _tickets.where((ticket) => !ticket.isServerBacked).toList(),
+      _OrdersMode.orders =>
+        _tickets.where((ticket) => ticket.isServerBacked).toList(),
+    };
+  }
+
   List<_HeldTicket> get _filteredTickets {
     final query = _searchController.text.trim().toLowerCase();
     final now = DateTime.now();
-    return widget.tickets.where((ticket) {
+    return _modeTickets.where((ticket) {
       final matchesFilter = switch (_filter) {
         _OrdersFilter.today => _isSameDate(ticket.createdAt, now),
         _OrdersFilter.unpaid => _isTicketUnpaid(ticket),
@@ -9447,6 +9637,8 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
   @override
   Widget build(BuildContext context) {
     final tickets = _filteredTickets;
+    final heldCount = _tickets.where((ticket) => !ticket.isServerBacked).length;
+    final orderCount = _tickets.where((ticket) => ticket.isServerBacked).length;
     return Material(
       color: Colors.white,
       elevation: 18,
@@ -9509,8 +9701,18 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-              child: _OrdersModeTabs(heldCount: widget.tickets.length),
+              child: _OrdersModeTabs(
+                mode: _mode,
+                heldCount: heldCount,
+                orderCount: orderCount,
+                onChanged: (mode) => setState(() => _mode = mode),
+              ),
             ),
+            if (_loading)
+              const LinearProgressIndicator(
+                minHeight: 2,
+                backgroundColor: Color(0xFFE5E7EB),
+              ),
             const Divider(height: 18, color: Color(0xFFE5E7EB)),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
@@ -9587,7 +9789,7 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
               child: tickets.isEmpty
                   ? Center(
                       child: Text(
-                        _emptyOrdersMessage(_filter),
+                        _emptyOrdersMessage(_mode, _filter),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Color(0xFF64748B),
@@ -9620,8 +9822,8 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
               ),
               child: Text(
                 tickets.isEmpty
-                    ? '0 of ${widget.tickets.length}'
-                    : '1-${tickets.length} of ${widget.tickets.length}',
+                    ? '0 of ${_modeTickets.length}'
+                    : '1-${tickets.length} of ${_modeTickets.length}',
                 style: const TextStyle(
                   color: Color(0xFF94A3B8),
                   fontSize: 13,
@@ -9637,9 +9839,17 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
 }
 
 class _OrdersModeTabs extends StatelessWidget {
-  const _OrdersModeTabs({required this.heldCount});
+  const _OrdersModeTabs({
+    required this.mode,
+    required this.heldCount,
+    required this.orderCount,
+    required this.onChanged,
+  });
 
+  final _OrdersMode mode;
   final int heldCount;
+  final int orderCount;
+  final ValueChanged<_OrdersMode> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -9657,15 +9867,18 @@ class _OrdersModeTabs extends StatelessWidget {
               icon: Icons.pause_circle_outline,
               label: 'Held',
               count: heldCount,
-              active: false,
+              active: mode == _OrdersMode.held,
+              onTap: () => onChanged(_OrdersMode.held),
             ),
           ),
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: _OrdersModeTab(
               icon: Icons.confirmation_number_outlined,
               label: 'Orders',
-              active: true,
+              count: orderCount,
+              active: mode == _OrdersMode.orders,
+              onTap: () => onChanged(_OrdersMode.orders),
             ),
           ),
         ],
@@ -9679,69 +9892,78 @@ class _OrdersModeTab extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.active,
+    required this.onTap,
     this.count,
   });
 
   final IconData icon;
   final String label;
   final bool active;
+  final VoidCallback onTap;
   final int? count;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: active ? Colors.white : Colors.transparent,
+    return Material(
+      color: active ? Colors.white : Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: active
-            ? [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ]
-            : null,
-      ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: const Color(0xFF0F172A), size: 20),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: active
-                    ? const Color(0xFF0F172A)
-                    : const Color(0xFF64748B),
-                fontSize: 15,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            if (count != null) ...[
-              const SizedBox(width: 8),
-              Container(
-                width: 22,
-                height: 22,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF59E0B),
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  count.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+        onTap: onTap,
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: const Color(0xFF0F172A), size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: active
+                        ? const Color(0xFF0F172A)
+                        : const Color(0xFF64748B),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-            ],
-          ],
+                if (count != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF59E0B),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      count.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -9907,7 +10129,6 @@ class _HeldTicketCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final customer = ticket.customerName?.trim();
     final note = ticket.orderNotes?.trim();
-    final firstLine = ticket.lines.isEmpty ? null : ticket.lines.first;
     final status = _orderStatusLabel(ticket.status);
     final paymentStatus = _paymentStatusLabel(ticket.paymentStatus);
     final due = ticket.amountDue > 0 ? ticket.amountDue : ticket.total;
@@ -10060,57 +10281,7 @@ class _HeldTicketCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Container(
-              height: 46,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    firstLine == null
-                        ? '${ticket.itemCount}x'
-                        : '${firstLine.quantity}x',
-                    style: const TextStyle(
-                      color: Color(0xFF94A3B8),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      firstLine?.item.name ?? 'Held ticket',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 90),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        money.format(firstLine?.total ?? ticket.total),
-                        style: const TextStyle(
-                          color: Color(0xFF475569),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _HeldTicketItemsList(ticket: ticket, money: money),
             if ((customer != null && customer.isNotEmpty) ||
                 (note != null && note.isNotEmpty)) ...[
               const SizedBox(height: 10),
@@ -10251,6 +10422,122 @@ class _OrderTokenBadge extends StatelessWidget {
                 fontSize: 25,
                 fontWeight: FontWeight.w900,
                 height: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeldTicketItemsList extends StatelessWidget {
+  const _HeldTicketItemsList({required this.ticket, required this.money});
+
+  final _HeldTicket ticket;
+  final NumberFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleLines = ticket.lines.take(4).toList();
+    final remaining = ticket.lines.length - visibleLines.length;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        children: [
+          if (visibleLines.isEmpty)
+            _HeldTicketItemLine(
+              quantity: ticket.itemCount,
+              name: 'Held ticket',
+              amount: ticket.total,
+              money: money,
+            )
+          else
+            for (final line in visibleLines)
+              _HeldTicketItemLine(
+                quantity: line.quantity,
+                name: line.displayName,
+                amount: line.total,
+                money: money,
+              ),
+          if (remaining > 0) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '+ $remaining more item${remaining == 1 ? '' : 's'}',
+                style: const TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HeldTicketItemLine extends StatelessWidget {
+  const _HeldTicketItemLine({
+    required this.quantity,
+    required this.name,
+    required this.amount,
+    required this.money,
+  });
+
+  final int quantity;
+  final String name;
+  final double amount;
+  final NumberFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Text(
+            '${quantity}x',
+            style: const TextStyle(
+              color: Color(0xFF94A3B8),
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF0F172A),
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 92),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                money.format(amount),
+                style: const TextStyle(
+                  color: Color(0xFF475569),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
@@ -10879,6 +11166,11 @@ class _CartLine {
 
   double get total => unitPrice * quantity;
 
+  String get displayName {
+    final options = optionSummary;
+    return options.isEmpty ? item.name : '${item.name} ($options)';
+  }
+
   List<String> get optionTags {
     return [
       if (variant != null) variant!.name,
@@ -11356,7 +11648,10 @@ bool _isTicketUnpaid(_HeldTicket ticket) {
   return status != 'paid' && status != 'settled' && status != 'completed';
 }
 
-String _emptyOrdersMessage(_OrdersFilter filter) {
+String _emptyOrdersMessage(_OrdersMode mode, _OrdersFilter filter) {
+  if (mode == _OrdersMode.held) {
+    return 'No held tickets.';
+  }
   return switch (filter) {
     _OrdersFilter.today => 'No orders for today.',
     _OrdersFilter.unpaid => 'No unpaid orders.',

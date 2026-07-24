@@ -144,8 +144,16 @@ class AppTheme {
         isDense: true,
       ),
       scrollbarTheme: ScrollbarThemeData(
-        thumbColor: WidgetStateProperty.all(const Color(0xFF4F46E5)),
-        trackColor: WidgetStateProperty.all(const Color(0xFFE2E8F0)),
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          return scheme.brightness == Brightness.dark
+              ? const Color(0xFF64748B)
+              : const Color(0xFF8A8F98);
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          return scheme.brightness == Brightness.dark
+              ? const Color(0xFF1F2937)
+              : const Color(0xFFE5E7EB);
+        }),
         thickness: WidgetStateProperty.all(8),
         radius: const Radius.circular(999),
         minThumbLength: 52,

@@ -945,8 +945,8 @@ List<int> _columnWidths(int count, int lineChars) {
   }
   if (count == 4) {
     final first = lineChars <= 32 ? 4 : 5;
-    final third = lineChars <= 32 ? 4 : 5;
-    final last = lineChars <= 32 ? 9 : 11;
+    final third = lineChars <= 32 ? 3 : 4;
+    final last = lineChars <= 32 ? 10 : (lineChars <= 42 ? 10 : 12);
     return [first, lineChars - first - third - last - 3, third, last];
   }
 

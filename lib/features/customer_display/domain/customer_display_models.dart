@@ -45,11 +45,13 @@ class CustomerBoardSnapshot {
     this.preparing = const [],
     this.ready = const [],
     this.history = const [],
+    this.cart = const CustomerCart(active: false),
   });
 
   final List<CustomerDisplayOrder> preparing;
   final List<CustomerDisplayOrder> ready;
   final List<CustomerDisplayOrder> history;
+  final CustomerCart cart;
 
   factory CustomerBoardSnapshot.fromJson(Map<String, dynamic> json) {
     final data = _asMap(json['data']).isNotEmpty ? _asMap(json['data']) : json;
@@ -113,6 +115,7 @@ class CustomerBoardSnapshot {
         preparing: preparingOrders.where((order) => !order.isHidden).toList(),
         ready: readyOrders.where((order) => !order.isHidden).toList(),
         history: history,
+        cart: CustomerCart.fromJson(data),
       );
     }
 
@@ -127,6 +130,7 @@ class CustomerBoardSnapshot {
         ...mergedOrders.where((order) => order.isReady),
       ]),
       history: mergedOrders,
+      cart: CustomerCart.fromJson(data),
     );
   }
 }
