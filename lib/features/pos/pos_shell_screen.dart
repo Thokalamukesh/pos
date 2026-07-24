@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -131,6 +132,7 @@ class _PosWorkspace extends ConsumerStatefulWidget {
 class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
   final _searchController = TextEditingController();
   final _orderNoteController = TextEditingController();
+  final _shortcutFocusNode = FocusNode(debugLabel: 'POS shortcuts');
   final List<_CartLine> _cart = [];
   final List<_HeldTicket> _heldTickets = [];
 
@@ -168,6 +170,11 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _currentShift = _extractShift(widget.data.currentShift ?? const {});
     _setFirstCategory();
     _searchController.addListener(() => setState(() {}));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _shortcutFocusNode.requestFocus();
+      }
+    });
     unawaited(_loadMenuCategories());
     _startMenuRefreshPolling();
     _startOrderPolling();
@@ -201,6 +208,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _noticeEntry?.remove();
     _searchController.dispose();
     _orderNoteController.dispose();
+    _shortcutFocusNode.dispose();
     super.dispose();
   }
 
@@ -370,6 +378,23 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     });
   }
 
+  void _handleShortcutKey(KeyEvent event) {
+    if (event is! KeyDownEvent || _isTextInputFocused()) {
+      return;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.f5) {
+      unawaited(_openTicketsDrawer(initialMode: _OrdersMode.orders));
+      return;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.f4) {
+      unawaited(_openTicketsDrawer(initialMode: _OrdersMode.held));
+    }
+  }
+
+  bool _isTextInputFocused() {
+    return primaryFocus?.context?.widget is EditableText;
+  }
+
   Future<void> _pollOpenOrders() async {
     try {
       final orders = await ref
@@ -404,6 +429,14 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
 
   Future<void> _openKitchenDisplay() async {
     await context.push(KitchenDisplayScreen.routePath);
+  }
+
+  void _openSwiggyOrders() {
+    _showNotice('Swiggy orders will appear here when enabled.');
+  }
+
+  void _openZomatoOrders() {
+    _showNotice('Zomato orders will appear here when enabled.');
   }
 
   Future<void> _confirmExitPos() async {
@@ -948,30 +981,34 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
     _showSnack('Order held.');
   }
 
-  Future<void> _openTicketsDrawer() async {
+  Future<void> _openTicketsDrawer({
+    _OrdersMode initialMode = _OrdersMode.orders,
+  }) async {
     final ticket = await showGeneralDialog<_HeldTicket>(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Open tickets',
       barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 160),
+      transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (context, animation, secondaryAnimation) {
         return _HeldTicketsOverlay(
           initialTickets: List<_HeldTicket>.of(_heldTickets),
           loadTickets: _loadTicketsForDrawer,
+          initialMode: initialMode,
           money: _money,
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
           parent: animation,
-          curve: Curves.easeOut,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
         );
         return FadeTransition(
           opacity: curved,
           child: SlideTransition(
             position: Tween<Offset>(
-              begin: const Offset(0.08, 0),
+              begin: const Offset(1, 0),
               end: Offset.zero,
             ).animate(curved),
             child: child,
@@ -2447,155 +2484,162 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       fallback: session?.user.name,
     );
 
-    return SizedBox.expand(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 1050;
-          const cartWidth = 536.0;
-          final ticketItemCount = _cart.fold<int>(
-            0,
-            (sum, line) => sum + line.quantity,
-          );
-          final selectedItemIds = _selectedProductId == null
-              ? const <String>{}
-              : <String>{_selectedProductId!};
-          final catalog = _CatalogPanel(
-            searchController: _searchController,
-            items: visibleItems,
-            popularItems: _popularItems,
-            money: _money,
-            viewMode: _viewMode,
-            searchQuery: searchQuery,
-            activeCategoryName: activeCategoryName,
-            showPopular: showPopular,
-            ticketItemCount: ticketItemCount,
-            selectedItemIds: selectedItemIds,
-            onAdd: _addItem,
-          );
-          final cart = _CartPanel(
-            lines: _cart,
-            money: _money,
-            orderType: _orderType,
-            subtotal: _subtotal,
-            discountAmount: _discountAmount,
-            payable: _payable,
-            customerName: _customerName,
-            orderNotes: _orderNotes,
-            selectedTableName: _selectedTable?.name,
-            orderNoteEditorVisible: _orderNoteEditorVisible,
-            orderNoteController: _orderNoteController,
-            isCharging: _isCharging,
-            customerSearchVisible: _customerSearchVisible,
-            orderTypeExpanded: _orderTypeExpanded,
-            heldTicketCount: _heldTickets.length,
-            onCustomer: () => setState(() => _customerSearchVisible = true),
-            onCustomerSubmitted: _setInlineCustomer,
-            onToggleOrderType: () =>
-                setState(() => _orderTypeExpanded = !_orderTypeExpanded),
-            onOpenTickets: _openTicketsDrawer,
-            onClearCart: _clearCart,
-            onOrderTypeChanged: (value) {
-              setState(() {
-                _orderType = value;
-                _orderTypeExpanded = false;
-                if (value != 'dine_in') {
-                  _selectedTable = null;
-                }
-              });
-              _queueDisplaySync();
-            },
-            onDiscount: _editDiscount,
-            onTable: _editTable,
-            onOrderNotes: _editOrderNotes,
-            onOrderNotesChanged: _updateOrderNotes,
-            expandedLineKey: _expandedCartLineKey,
-            onToggleLine: _toggleCartLineExpansion,
-            onQuantityChanged: _changeQuantity,
-            onLineNote: _editLineNote,
-            onRemove: _removeLine,
-            onHold: _holdOrder,
-            onProceed: _proceedToPayment,
-          );
+    return KeyboardListener(
+      focusNode: _shortcutFocusNode,
+      autofocus: true,
+      onKeyEvent: _handleShortcutKey,
+      child: SizedBox.expand(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 1050;
+            const cartWidth = 536.0;
+            final ticketItemCount = _cart.fold<int>(
+              0,
+              (sum, line) => sum + line.quantity,
+            );
+            final selectedItemIds = _selectedProductId == null
+                ? const <String>{}
+                : <String>{_selectedProductId!};
+            final catalog = _CatalogPanel(
+              searchController: _searchController,
+              items: visibleItems,
+              popularItems: _popularItems,
+              money: _money,
+              viewMode: _viewMode,
+              searchQuery: searchQuery,
+              activeCategoryName: activeCategoryName,
+              showPopular: showPopular,
+              ticketItemCount: ticketItemCount,
+              selectedItemIds: selectedItemIds,
+              onAdd: _addItem,
+            );
+            final cart = _CartPanel(
+              lines: _cart,
+              money: _money,
+              orderType: _orderType,
+              subtotal: _subtotal,
+              discountAmount: _discountAmount,
+              payable: _payable,
+              customerName: _customerName,
+              orderNotes: _orderNotes,
+              selectedTableName: _selectedTable?.name,
+              orderNoteEditorVisible: _orderNoteEditorVisible,
+              orderNoteController: _orderNoteController,
+              isCharging: _isCharging,
+              customerSearchVisible: _customerSearchVisible,
+              orderTypeExpanded: _orderTypeExpanded,
+              heldTicketCount: _heldTickets.length,
+              onCustomer: () => setState(() => _customerSearchVisible = true),
+              onCustomerSubmitted: _setInlineCustomer,
+              onToggleOrderType: () =>
+                  setState(() => _orderTypeExpanded = !_orderTypeExpanded),
+              onOpenTickets: _openTicketsDrawer,
+              onClearCart: _clearCart,
+              onOrderTypeChanged: (value) {
+                setState(() {
+                  _orderType = value;
+                  _orderTypeExpanded = false;
+                  if (value != 'dine_in') {
+                    _selectedTable = null;
+                  }
+                });
+                _queueDisplaySync();
+              },
+              onDiscount: _editDiscount,
+              onTable: _editTable,
+              onOrderNotes: _editOrderNotes,
+              onOrderNotesChanged: _updateOrderNotes,
+              expandedLineKey: _expandedCartLineKey,
+              onToggleLine: _toggleCartLineExpansion,
+              onQuantityChanged: _changeQuantity,
+              onLineNote: _editLineNote,
+              onRemove: _removeLine,
+              onHold: _holdOrder,
+              onProceed: _proceedToPayment,
+            );
 
-          final shiftStrip = _ShiftStrip(
-            currentShift: _currentShift,
-            terminalCode: widget.terminal.terminalCode,
-            printerConfig: printerConfig,
-            shiftBusy: _shiftBusy,
-            onOpenShift: _openShift,
-            onCloseShift: _closeShift,
-            onPrinterTap: _openPrinterSetup,
-            onSwitchTerminal: () =>
-                context.go(TerminalSelectionScreen.routePath),
-          );
+            final shiftStrip = _ShiftStrip(
+              currentShift: _currentShift,
+              terminalCode: widget.terminal.terminalCode,
+              printerConfig: printerConfig,
+              shiftBusy: _shiftBusy,
+              onOpenShift: _openShift,
+              onCloseShift: _closeShift,
+              onPrinterTap: _openPrinterSetup,
+              onSwitchTerminal: () =>
+                  context.go(TerminalSelectionScreen.routePath),
+            );
 
-          return Theme(
-            data: darkMode ? AppTheme.dark() : Theme.of(context),
-            child: Column(
-              children: [
-                _PosHeader(
-                  data: widget.data,
-                  terminal: widget.terminal,
-                  staffName: staffName,
-                  onKot: _openKitchenDisplay,
-                  onCustomerDisplay: _openCustomerDisplay,
-                  onOrders: _openTicketsDrawer,
-                  onDailyReport: _openDailyReport,
-                  darkMode: darkMode,
-                  selectedLanguage: selectedLanguage,
-                  languages: languages,
-                  onLanguageSelected: _selectLanguage,
-                  onToggleTheme: () {
-                    ref.read(appThemeModeProvider.notifier).state = darkMode
-                        ? ThemeMode.light
-                        : ThemeMode.dark;
-                  },
-                  onFullscreen: _toggleFullscreen,
-                  onLogout: _confirmExitPos,
-                ),
-                Expanded(
-                  child: compact
-                      ? Column(
-                          children: [
-                            SizedBox(
-                              height: 112,
-                              child: _CategoryRail(
+            return Theme(
+              data: darkMode ? AppTheme.dark() : Theme.of(context),
+              child: Column(
+                children: [
+                  _PosHeader(
+                    data: widget.data,
+                    terminal: widget.terminal,
+                    staffName: staffName,
+                    onKot: _openKitchenDisplay,
+                    onSwiggy: _openSwiggyOrders,
+                    onZomato: _openZomatoOrders,
+                    onCustomerDisplay: _openCustomerDisplay,
+                    onOrders: _openTicketsDrawer,
+                    onDailyReport: _openDailyReport,
+                    darkMode: darkMode,
+                    selectedLanguage: selectedLanguage,
+                    languages: languages,
+                    onLanguageSelected: _selectLanguage,
+                    onToggleTheme: () {
+                      ref.read(appThemeModeProvider.notifier).state = darkMode
+                          ? ThemeMode.light
+                          : ThemeMode.dark;
+                    },
+                    onFullscreen: _toggleFullscreen,
+                    onLogout: _confirmExitPos,
+                  ),
+                  Expanded(
+                    child: compact
+                        ? Column(
+                            children: [
+                              SizedBox(
+                                height: 112,
+                                child: _CategoryRail(
+                                  categories: categories,
+                                  activeCategoryId: _activeCategoryId,
+                                  onSelected: _selectCategory,
+                                  horizontal: true,
+                                ),
+                              ),
+                              shiftStrip,
+                              Expanded(child: ClipRect(child: catalog)),
+                              SizedBox(height: 390, child: cart),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              _CategoryRail(
                                 categories: categories,
                                 activeCategoryId: _activeCategoryId,
                                 onSelected: _selectCategory,
-                                horizontal: true,
                               ),
-                            ),
-                            shiftStrip,
-                            Expanded(child: ClipRect(child: catalog)),
-                            SizedBox(height: 390, child: cart),
-                          ],
-                        )
-                      : Row(
-                          children: [
-                            _CategoryRail(
-                              categories: categories,
-                              activeCategoryId: _activeCategoryId,
-                              onSelected: _selectCategory,
-                            ),
-                            Expanded(
-                              child: ClipRect(
-                                child: Column(
-                                  children: [
-                                    shiftStrip,
-                                    Expanded(child: ClipRect(child: catalog)),
-                                  ],
+                              Expanded(
+                                child: ClipRect(
+                                  child: Column(
+                                    children: [
+                                      shiftStrip,
+                                      Expanded(child: ClipRect(child: catalog)),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                            SizedBox(width: cartWidth, child: cart),
-                          ],
-                        ),
-                ),
-              ],
-            ),
-          );
-        },
+                              SizedBox(width: cartWidth, child: cart),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -2624,6 +2668,8 @@ class _PosHeader extends StatelessWidget {
     required this.terminal,
     required this.staffName,
     required this.onKot,
+    required this.onSwiggy,
+    required this.onZomato,
     required this.onCustomerDisplay,
     required this.onOrders,
     required this.onDailyReport,
@@ -2640,6 +2686,8 @@ class _PosHeader extends StatelessWidget {
   final TerminalContext terminal;
   final String staffName;
   final VoidCallback onKot;
+  final VoidCallback onSwiggy;
+  final VoidCallback onZomato;
   final VoidCallback onCustomerDisplay;
   final VoidCallback onOrders;
   final VoidCallback onDailyReport;
@@ -2700,7 +2748,7 @@ class _PosHeader extends StatelessWidget {
                       children: [
                         Flexible(
                           child: Text(
-                            'POS Terminal',
+                            'SELFX POS',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -2710,12 +2758,6 @@ class _PosHeader extends StatelessWidget {
                               height: 1.05,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        _Badge(
-                          text: 'POS',
-                          color: const Color(0xFFE0E7FF),
-                          textColor: const Color(0xFF4F46E5),
                         ),
                       ],
                     ),
@@ -2750,6 +2792,26 @@ class _PosHeader extends StatelessWidget {
                 icon: Icons.soup_kitchen_outlined,
                 iconColor: const Color(0xFF059669),
                 onPressed: onKot,
+              ),
+              const SizedBox(width: 8),
+              _HeaderActionButton(
+                compact: compact || tight,
+                iconButtonStyle: iconButtonStyle,
+                tooltip: 'Swiggy',
+                label: 'Swiggy',
+                icon: Icons.delivery_dining_outlined,
+                iconColor: const Color(0xFFF97316),
+                onPressed: onSwiggy,
+              ),
+              const SizedBox(width: 8),
+              _HeaderActionButton(
+                compact: compact || tight,
+                iconButtonStyle: iconButtonStyle,
+                tooltip: 'Zomato',
+                label: 'Zomato',
+                icon: Icons.storefront_outlined,
+                iconColor: const Color(0xFFE11D48),
+                onPressed: onZomato,
               ),
               const SizedBox(width: 8),
               _HeaderActionButton(
@@ -2790,7 +2852,7 @@ class _PosHeader extends StatelessWidget {
                         ),
                         onPressed: onDailyReport,
                         icon: Icon(Icons.print_outlined, color: textColor),
-                        label: const Text('Day-end reports'),
+                        label: const Text('Reports'),
                       ),
               ),
               const SizedBox(width: 8),
@@ -4299,7 +4361,7 @@ class _CartPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 _CartToolButton(
-                  tooltip: 'Grid view',
+                  tooltip: 'Order Type',
                   icon: Icons.grid_view,
                   onPressed: onToggleOrderType,
                 ),
@@ -4308,7 +4370,7 @@ class _CartPanel extends StatelessWidget {
                   isLabelVisible: heldTicketCount > 0,
                   label: Text('$heldTicketCount'),
                   child: _CartToolButton(
-                    tooltip: 'Open tickets (F4)',
+                    tooltip: 'Orders(F5)',
                     icon: Icons.format_list_numbered,
                     onPressed: onOpenTickets,
                   ),
@@ -9542,15 +9604,22 @@ class _HeldTicketsOverlay extends StatelessWidget {
   const _HeldTicketsOverlay({
     required this.initialTickets,
     required this.loadTickets,
+    required this.initialMode,
     required this.money,
   });
 
   final List<_HeldTicket> initialTickets;
   final Future<List<_HeldTicket>> Function() loadTickets;
+  final _OrdersMode initialMode;
   final NumberFormat money;
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final drawerWidth = math.min(
+      screenWidth,
+      math.min(620.0, math.max(520.0, screenWidth * 0.34)),
+    );
     return Stack(
       children: [
         Positioned.fill(
@@ -9560,12 +9629,14 @@ class _HeldTicketsOverlay extends StatelessWidget {
           ),
         ),
         Align(
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: drawerWidth,
+            height: double.infinity,
             child: _HeldTicketsSheet(
               initialTickets: initialTickets,
               loadTickets: loadTickets,
+              initialMode: initialMode,
               money: money,
             ),
           ),
@@ -9579,11 +9650,13 @@ class _HeldTicketsSheet extends StatefulWidget {
   const _HeldTicketsSheet({
     required this.initialTickets,
     required this.loadTickets,
+    required this.initialMode,
     required this.money,
   });
 
   final List<_HeldTicket> initialTickets;
   final Future<List<_HeldTicket>> Function() loadTickets;
+  final _OrdersMode initialMode;
   final NumberFormat money;
 
   @override
@@ -9595,19 +9668,20 @@ enum _OrdersMode { held, orders }
 enum _OrdersFilter { today, unpaid, sevenDays }
 
 class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
+  static const _pageSize = 10;
+
   final _searchController = TextEditingController();
   late List<_HeldTicket> _tickets;
-  _OrdersMode _mode = _OrdersMode.orders;
+  late _OrdersMode _mode;
   _OrdersFilter _filter = _OrdersFilter.today;
+  int _page = 0;
   bool _loading = false;
 
   @override
   void initState() {
     super.initState();
     _tickets = List<_HeldTicket>.of(widget.initialTickets);
-    if (widget.initialTickets.isNotEmpty) {
-      _mode = _OrdersMode.held;
-    }
+    _mode = widget.initialMode;
     unawaited(_refreshTickets());
   }
 
@@ -9627,6 +9701,7 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
       setState(() {
         _tickets = tickets;
         _loading = false;
+        _clampPage();
       });
     } on Object {
       if (mounted) {
@@ -9637,10 +9712,9 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
 
   List<_HeldTicket> get _modeTickets {
     return switch (_mode) {
-      _OrdersMode.held =>
-        _tickets.where((ticket) => !ticket.isServerBacked).toList(),
+      _OrdersMode.held => _tickets.where(_isHeldDraftTicket).toList(),
       _OrdersMode.orders =>
-        _tickets.where((ticket) => ticket.isServerBacked).toList(),
+        _tickets.where((ticket) => !_isHeldDraftTicket(ticket)).toList(),
     };
   }
 
@@ -9673,23 +9747,67 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
     }).toList();
   }
 
+  List<_HeldTicket> get _pagedTickets {
+    final filtered = _filteredTickets;
+    if (filtered.isEmpty) {
+      return const [];
+    }
+    final start = math.min(_page * _pageSize, filtered.length);
+    final end = math.min(start + _pageSize, filtered.length);
+    return filtered.sublist(start, end);
+  }
+
+  int get _pageCount {
+    final total = _filteredTickets.length;
+    if (total == 0) {
+      return 1;
+    }
+    return (total / _pageSize).ceil();
+  }
+
+  void _setMode(_OrdersMode mode) {
+    setState(() {
+      _mode = mode;
+      _page = 0;
+    });
+  }
+
+  void _setFilter(_OrdersFilter filter) {
+    setState(() {
+      _filter = filter;
+      _page = 0;
+    });
+  }
+
+  void _clampPage() {
+    final maxPage = math.max(0, _pageCount - 1);
+    if (_page > maxPage) {
+      _page = maxPage;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tickets = _filteredTickets;
-    final heldCount = _tickets.where((ticket) => !ticket.isServerBacked).length;
-    final orderCount = _tickets.where((ticket) => ticket.isServerBacked).length;
+    final filteredTickets = _filteredTickets;
+    final tickets = _pagedTickets;
+    final totalTickets = filteredTickets.length;
+    final pageCount = _pageCount;
+    final heldCount = _tickets.where(_isHeldDraftTicket).length;
+    final orderCount = _tickets
+        .where((ticket) => !_isHeldDraftTicket(ticket))
+        .length;
     return Material(
       color: Colors.white,
       elevation: 18,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 780,
-          maxHeight: math.min(MediaQuery.sizeOf(context).height - 48, 900),
+          maxWidth: 620,
+          minHeight: MediaQuery.sizeOf(context).height,
+          maxHeight: MediaQuery.sizeOf(context).height,
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 18, 14, 14),
@@ -9744,7 +9862,7 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
                 mode: _mode,
                 heldCount: heldCount,
                 orderCount: orderCount,
-                onChanged: (mode) => setState(() => _mode = mode),
+                onChanged: _setMode,
               ),
             ),
             if (_loading)
@@ -9763,8 +9881,7 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
                         child: _OrdersFilterChip(
                           label: 'Today',
                           active: _filter == _OrdersFilter.today,
-                          onTap: () =>
-                              setState(() => _filter = _OrdersFilter.today),
+                          onTap: () => _setFilter(_OrdersFilter.today),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -9772,8 +9889,7 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
                         child: _OrdersFilterChip(
                           label: 'Unpaid',
                           active: _filter == _OrdersFilter.unpaid,
-                          onTap: () =>
-                              setState(() => _filter = _OrdersFilter.unpaid),
+                          onTap: () => _setFilter(_OrdersFilter.unpaid),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -9781,8 +9897,7 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
                         child: _OrdersFilterChip(
                           label: '7 days',
                           active: _filter == _OrdersFilter.sevenDays,
-                          onTap: () =>
-                              setState(() => _filter = _OrdersFilter.sevenDays),
+                          onTap: () => _setFilter(_OrdersFilter.sevenDays),
                         ),
                       ),
                     ],
@@ -9790,7 +9905,7 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: _searchController,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() => _page = 0),
                     decoration: InputDecoration(
                       hintText: 'Search order #, customer, table...',
                       hintStyle: const TextStyle(
@@ -9820,12 +9935,15 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _OrdersSummaryRow(tickets: tickets, money: widget.money),
+                  _OrdersSummaryRow(
+                    tickets: filteredTickets,
+                    money: widget.money,
+                  ),
                 ],
               ),
             ),
             Expanded(
-              child: tickets.isEmpty
+              child: filteredTickets.isEmpty
                   ? Center(
                       child: Text(
                         _emptyOrdersMessage(_mode, _filter),
@@ -9859,19 +9977,94 @@ class _HeldTicketsSheetState extends State<_HeldTicketsSheet> {
                 color: Color(0xFFFFFFFF),
                 border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
               ),
-              child: Text(
-                tickets.isEmpty
-                    ? '0 of ${_modeTickets.length}'
-                    : '1-${tickets.length} of ${_modeTickets.length}',
-                style: const TextStyle(
-                  color: Color(0xFF94A3B8),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
+              child: _OrdersPager(
+                page: _page,
+                pageCount: pageCount,
+                total: totalTickets,
+                visibleCount: tickets.length,
+                onPrevious: _page <= 0
+                    ? null
+                    : () => setState(() => _page -= 1),
+                onNext: _page >= pageCount - 1
+                    ? null
+                    : () => setState(() => _page += 1),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _OrdersPager extends StatelessWidget {
+  const _OrdersPager({
+    required this.page,
+    required this.pageCount,
+    required this.total,
+    required this.visibleCount,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int page;
+  final int pageCount;
+  final int total;
+  final int visibleCount;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = total == 0 ? 0 : page * _HeldTicketsSheetState._pageSize + 1;
+    final end = total == 0 ? 0 : start + visibleCount - 1;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Text(
+            '$start-$end of $total',
+            style: const TextStyle(
+              color: Color(0xFF94A3B8),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          Container(
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Previous page',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onPrevious,
+                  icon: const Icon(Icons.chevron_left, size: 20),
+                ),
+                Text(
+                  'Page ${page + 1} of $pageCount',
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Next page',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onNext,
+                  icon: const Icon(Icons.chevron_right, size: 20),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -10672,38 +10865,6 @@ class _HeaderChip extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({
-    required this.text,
-    required this.color,
-    this.textColor = const Color(0xFF111827),
-  });
-
-  final String text;
-  final Color color;
-  final Color textColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: textColor,
-          fontSize: 11,
-          fontWeight: FontWeight.w900,
-          height: 1,
-        ),
       ),
     );
   }
@@ -11685,6 +11846,20 @@ bool _isTicketUnpaid(_HeldTicket ticket) {
     return true;
   }
   return status != 'paid' && status != 'settled' && status != 'completed';
+}
+
+bool _isHeldDraftTicket(_HeldTicket ticket) {
+  if (!ticket.isServerBacked) {
+    return true;
+  }
+  final status = ticket.status?.trim().toLowerCase().replaceAll('-', '_');
+  return const {
+    'draft',
+    'parked',
+    'held',
+    'hold',
+    'payment_pending',
+  }.contains(status);
 }
 
 String _emptyOrdersMessage(_OrdersMode mode, _OrdersFilter filter) {
