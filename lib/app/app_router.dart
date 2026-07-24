@@ -11,8 +11,11 @@ import '../features/pos/pos_shell_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/terminal/terminal_selection_screen.dart';
 
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: SplashScreen.routePath,
     routes: [
       GoRoute(

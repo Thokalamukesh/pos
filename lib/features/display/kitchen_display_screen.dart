@@ -11,6 +11,7 @@ import '../../core/config/app_config.dart';
 import '../../core/errors/app_exception.dart';
 import '../../core/network/api_client.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/exit_confirmation_dialog.dart';
 
 final _kitchenDisplayRepositoryProvider = Provider<_KitchenDisplayRepository>(
   (ref) => _KitchenDisplayRepository(ref.watch(dioProvider)),
@@ -50,6 +51,19 @@ class _KitchenDisplayScreenState extends ConsumerState<KitchenDisplayScreen> {
     super.dispose();
   }
 
+  Future<void> _confirmExitKitchen() async {
+    final shouldExit = await showExitConfirmationDialog(
+      context,
+      title: 'Exit kitchen?',
+      message: 'Are you sure you want to leave the Kitchen Display?',
+      confirmLabel: 'Exit',
+    );
+    if (!shouldExit || !mounted) {
+      return;
+    }
+    context.go('/pos');
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(_kitchenDisplayControllerProvider);
@@ -68,14 +82,14 @@ class _KitchenDisplayScreenState extends ConsumerState<KitchenDisplayScreen> {
               ),
               error: (error, _) => _KitchenErrorView(
                 message: _errorMessage(error),
-                onBack: () => context.go('/pos'),
+                onBack: _confirmExitKitchen,
                 onRetry: () =>
                     ref.invalidate(_kitchenDisplayControllerProvider),
               ),
               data: (data) => _KitchenDisplayBody(
                 state: data,
                 now: _now,
-                onBack: () => context.go('/pos'),
+                onBack: _confirmExitKitchen,
                 onCustomerBoard: () => context.go('/customer-display'),
                 onRefresh: () => ref
                     .read(_kitchenDisplayControllerProvider.notifier)

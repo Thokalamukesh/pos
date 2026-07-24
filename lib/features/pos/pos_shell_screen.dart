@@ -29,6 +29,7 @@ import '../../services/pos_beep_sound_service.dart';
 import '../../services/report_browser_print_service.dart';
 import '../../services/smartpos_customer_display_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/exit_confirmation_dialog.dart';
 import '../auth/auth_controller.dart';
 import '../auth/login_screen.dart';
 import '../bootstrap/bootstrap_providers.dart';
@@ -403,6 +404,23 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
 
   Future<void> _openKitchenDisplay() async {
     await context.push(KitchenDisplayScreen.routePath);
+  }
+
+  Future<void> _confirmExitPos() async {
+    final shouldExit = await showExitConfirmationDialog(
+      context,
+      title: 'Exit POS?',
+      message: 'Are you sure you want to exit POS?',
+      confirmLabel: 'Exit POS',
+    );
+    if (!shouldExit || !mounted) {
+      return;
+    }
+    final router = GoRouter.of(context);
+    await ref.read(authControllerProvider.notifier).logout();
+    if (mounted) {
+      router.go(LoginScreen.routePath);
+    }
   }
 
   Future<void> _openDailyReport() async {
@@ -2533,12 +2551,7 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
                         : ThemeMode.dark;
                   },
                   onFullscreen: _toggleFullscreen,
-                  onLogout: () async {
-                    await ref.read(authControllerProvider.notifier).logout();
-                    if (context.mounted) {
-                      context.go(LoginScreen.routePath);
-                    }
-                  },
+                  onLogout: _confirmExitPos,
                 ),
                 Expanded(
                   child: compact
