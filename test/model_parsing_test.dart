@@ -623,6 +623,54 @@ void main() {
     expect(text, contains('Rs 280.00'));
   });
 
+  test('item wise report rebuilds full rows from document payload', () async {
+    final receipt = ReceiptPrintObject.fromResponse({
+      'version': 1,
+      'paper': '56mm',
+      'font_size': 'medium',
+      'print_object': [
+        {'type': 'init'},
+        {'type': 'text', 'text': 'BADAM PAALU …    1    80.00'},
+        {'type': 'cut'},
+      ],
+      'document': {
+        'restaurant_name': 'YOGI AHAR',
+        'date_from_label': '24/07/2026',
+        'date_to_label': '24/07/2026',
+        'print_date': '24/07/2026',
+        'type': 'item',
+        'layout': 'item',
+        'title': 'ITEM WISE REPORT',
+        'columns': {
+          'code': 'Code',
+          'description': 'Description',
+          'qty': 'Qty',
+          'amount': 'Amount',
+        },
+        'rows': [
+          {
+            'code': '225',
+            'description': 'BADAM PAALU (COLD)',
+            'qty': 1,
+            'amount': 80,
+          },
+        ],
+        'totals': [
+          {'label': 'Total Amount', 'amount': 80},
+        ],
+      },
+    });
+
+    final bytes = await ReceiptPrinterService().buildEscPos(receipt);
+    final text = String.fromCharCodes(bytes);
+
+    expect(receipt.commands.any((command) => command['type'] == 'table'), true);
+    expect(text, contains('BADAM'));
+    expect(text, contains('PAALU'));
+    expect(text, contains('(COLD)'));
+    expect(text, isNot(contains('…')));
+  });
+
   test(
     'receipt printer preserves server receipt footer and branding',
     () async {

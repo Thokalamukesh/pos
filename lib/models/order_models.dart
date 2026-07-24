@@ -228,22 +228,137 @@ class ReceiptPrintObject {
               printObject['items'];
     final order = _asMap(json['order']) ?? const <String, dynamic>{};
     final commands = _asMapList(commandsValue);
+    final document = _asMap(json['document']) ?? const <String, dynamic>{};
+    final documentCommands = _itemWiseReportCommandsFromDocument(document);
 
     return ReceiptPrintObject(
       raw: json,
       order: order,
-      commands: commands.isEmpty ? _receiptCommandsFromOrder(order) : commands,
-      paper: _nullableString(printObject?['paper'] ?? json['paper']),
+      commands: documentCommands.isNotEmpty
+          ? documentCommands
+          : (commands.isEmpty ? _receiptCommandsFromOrder(order) : commands),
+      paper: _nullableString(
+        printObject?['paper'] ?? json['paper'] ?? document['paper_width'],
+      ),
       fontSize: _nullableString(
         printObject?['font_size'] ??
             printObject?['fontSize'] ??
             json['font_size'] ??
-            json['fontSize'],
+            json['fontSize'] ??
+            document['font_size'] ??
+            document['fontSize'],
       ),
     );
   }
 
   bool get hasCommands => commands.isNotEmpty;
+}
+
+List<Map<String, dynamic>> _itemWiseReportCommandsFromDocument(
+  Map<String, dynamic> document,
+) {
+  final layout = _stringValue(
+    document['layout'] ?? document['type'] ?? document['report_type'],
+  ).toLowerCase();
+  if (layout != 'item' && layout != 'item_wise' && layout != 'itemwise') {
+    return const <Map<String, dynamic>>[];
+  }
+  final rows = _asMapList(document['rows']);
+  if (rows.isEmpty) {
+    return const <Map<String, dynamic>>[];
+  }
+
+  final columns = _asMap(document['columns']) ?? const <String, dynamic>{};
+  final commands = <Map<String, dynamic>>[
+    {'type': 'init'},
+    {
+      'type': 'text',
+      'text': _stringValue(
+        document['restaurant_name'] ?? document['restaurantName'],
+        fallback: 'RESTAURANT',
+      ).toUpperCase(),
+      'align': 'center',
+      'style': 'bold',
+    },
+    {
+      'type': 'text',
+      'text': _stringValue(
+        document['title'],
+        fallback: 'ITEM WISE REPORT',
+      ).toUpperCase(),
+      'align': 'center',
+      'style': 'bold',
+    },
+    {'type': 'feed', 'lines': 1},
+    {
+      'type': 'text',
+      'text':
+          'Report From Date : ${_stringValue(document['date_from_label'] ?? document['dateFromLabel'])}',
+      'align': 'left',
+    },
+    {
+      'type': 'text',
+      'text':
+          'To Date : ${_stringValue(document['date_to_label'] ?? document['dateToLabel'])}',
+      'align': 'left',
+    },
+    {
+      'type': 'text',
+      'text':
+          'PrintDate : ${_stringValue(document['print_date'] ?? document['printDate'])}',
+      'align': 'left',
+    },
+    {'type': 'divider'},
+    {
+      'type': 'table',
+      'columns': [
+        {
+          'key': 'code',
+          'label': _stringValue(columns['code'], fallback: 'Code'),
+        },
+        {
+          'key': 'description',
+          'label': _stringValue(
+            columns['description'],
+            fallback: 'Description',
+          ),
+        },
+        {'key': 'qty', 'label': _stringValue(columns['qty'], fallback: 'Qty')},
+        {
+          'key': 'amount',
+          'label': _stringValue(columns['amount'], fallback: 'Amount'),
+          'align': 'right',
+        },
+      ],
+      'rows': rows.map((row) {
+        return <String, dynamic>{
+          'code': _stringValue(row['code']),
+          'description': _stringValue(
+            row['description'] ?? row['name'] ?? row['item'],
+          ).toUpperCase(),
+          'qty': _stringValue(row['qty'] ?? row['quantity']),
+          'amount': _reportAmount(row['amount'] ?? row['total']),
+        };
+      }).toList(),
+    },
+    {'type': 'divider'},
+    for (final total in _asMapList(document['totals']))
+      {
+        'type': 'row',
+        'left': _stringValue(total['label'], fallback: 'Total Amount'),
+        'right': _reportAmount(total['amount'] ?? total['total']),
+        'style': 'bold',
+      },
+    {'type': 'divider'},
+    {'type': 'feed', 'lines': 2},
+    {'type': 'cut', 'mode': 'full'},
+  ];
+  return commands;
+}
+
+String _reportAmount(Object? value) {
+  final amount = _doubleValue(value);
+  return amount == null ? _stringValue(value) : amount.toStringAsFixed(2);
 }
 
 List<Map<String, dynamic>> _receiptCommandsFromOrder(

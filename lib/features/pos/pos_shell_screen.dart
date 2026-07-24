@@ -898,7 +898,10 @@ class _PosWorkspaceState extends ConsumerState<_PosWorkspace> {
       final parked = await ref
           .read(posOrderRepositoryProvider)
           .parkOrder(_parkOrderRequest());
-      setState(_clearOrderState);
+      setState(() {
+        _heldTickets.add(localTicket);
+        _clearOrderState();
+      });
       _queueDisplaySync(clear: true);
       _showSnack('Order parked ${parked.displayNumber}.');
       return;
